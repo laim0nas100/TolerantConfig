@@ -619,9 +619,8 @@ public interface TolerantConfig {
      * @return
      */
     public default Properties nonTruncatedPropertySubset(String prefix) {
-        Map nonTruncatedSubMap = nonTruncatedSubMap(prefix);
-        Properties prop = new Properties(nonTruncatedSubMap.size());
-        prop.putAll(nonTruncatedSubMap);
+        Properties prop = new Properties();
+        prop.putAll(nonTruncatedSubMap(prefix));
         return prop;
     }
 
