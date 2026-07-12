@@ -144,7 +144,6 @@ public abstract class Util {
                 }
             }
         }
-
-        throw new IllegalArgumentException("Failed to map " + type + " enum not found for name:" + name);
+        return Optional.empty();
     }
 }

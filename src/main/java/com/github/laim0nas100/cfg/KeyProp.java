@@ -13,6 +13,7 @@ import java.util.function.Supplier;
 import java.util.stream.Stream;
 
 /**
+ * Facilitates static, typed, mapped, cached properties. Parameter indirection.
  *
  * @author laim0nas100
  */

@@ -23,10 +23,13 @@ import java.util.function.Supplier;
 
 /**
  *
- * Error tolerant configuration based on key-value pairs.
+ * Error tolerant configuration based on key-value pairs. Generally of type
+ * String:String, but can be used with any types ignoring most methods and just
+ * using {@link TolerantConfig#getAny(java.lang.String) }. Not intended to be
+ * modified after loading, but you still can with exposed {@link TolerantConfig#getMap()
+ * }, if the {@link ConfigurationSupplier} returns a static {@link Map}.
  *
  * @author laim0nas100
- * @param <Conf>
  */
 public interface TolerantConfig {
 
@@ -88,7 +91,6 @@ public interface TolerantConfig {
             final DefaultTolerantConfig other = (DefaultTolerantConfig) obj;
             return Objects.equals(this.getMap(), other.getMap());
         }
-
     }
 
     public static final TolerantConfig empty = new DefaultTolerantConfig(() -> Collections.EMPTY_MAP);
@@ -233,12 +235,19 @@ public interface TolerantConfig {
         Set<Map.Entry> entrySet = map.entrySet();
 
         return entrySet.stream()
-                .filter(entry -> {
-                    return String.valueOf(entry.getKey()).startsWith(prefix);
-                })
                 .map(entry -> {
-                    return new KP(String.valueOf(entry.getKey()), entry.getValue());
-                }).iterator();
+                    Object key = entry.getKey();
+                    if (key == null) {
+                        return null;
+                    }
+                    String strKey = String.valueOf(key);
+                    if (strKey.startsWith(prefix)) {
+                        return new KP(strKey, entry.getValue());
+                    }
+                    return null;
+                })
+                .filter(Objects::nonNull)
+                .iterator();
     }
 
     public default <T> T getByProp(KeyProperty<T> prop) {
@@ -559,11 +568,7 @@ public interface TolerantConfig {
 
     public default <C extends Enum<C>> C getEnum(String key, C defaultEnum) {
         return getOr(p -> {
-            String name = p.strTrim(key);
-            Class<C> enumType = defaultEnum.getDeclaringClass();
-            return Util.enumMatch(enumType, name)
-                    .orElseThrow(() -> new IllegalArgumentException("Failed to match enum " + enumType.getSimpleName() + " by name " + name));
-
+            return Util.enumMatch(defaultEnum.getDeclaringClass(), p.strTrim(key)).orElse(defaultEnum);
         }, defaultEnum);
     }
 
@@ -587,16 +592,10 @@ public interface TolerantConfig {
      * @return
      */
     public default Properties nonTruncatedPropertySubset(String prefix) {
-        final String final_prefix = prefix + ".";
-        return immutableSubset(prefix).asProperties(k -> {
-            if (k == null) {
-                return null;
-            }
-            if (Util.isBlank(k)) {
-                return prefix;
-            }
-            return final_prefix + k;
-        }, Function.identity());
+        Map nonTruncatedSubMap = nonTruncatedSubMap(prefix);
+        Properties prop = new Properties(nonTruncatedSubMap.size());
+        prop.putAll(nonTruncatedSubMap);
+        return prop;
     }
 
     /**
