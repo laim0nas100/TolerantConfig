@@ -19,9 +19,6 @@ import java.util.stream.Stream;
  */
 public abstract class KeyProp {
 
-    public static final String LIST_DELIM = ";";
-    public static final String NESTING_DELIM = ".";
-
     public static <T> Builder<T> ofAny(String key) {
         return new Builder<>(key, f -> f.getAny(key));
     }
@@ -362,7 +359,6 @@ public abstract class KeyProp {
                                     cached.put(prop[i], resolve);
                                     break;
                                 }
-
                             }
                         }
                     }

@@ -3,7 +3,7 @@
     <modelVersion>4.0.0</modelVersion>
     <groupId>com.github.laim0nas100</groupId>
     <artifactId>TolerantConfig</artifactId>
-    <version>1.0</version>
+    <version>local</version>
     <packaging>jar</packaging>
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>

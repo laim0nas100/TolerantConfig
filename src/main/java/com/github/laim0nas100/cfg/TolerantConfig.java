@@ -3,8 +3,6 @@ package com.github.laim0nas100.cfg;
 import com.github.laim0nas100.cfg.KeyProp.KP;
 import com.github.laim0nas100.cfg.KeyProp.KeyProperty;
 import com.github.laim0nas100.cfg.KeyProp.KeyVal;
-import static com.github.laim0nas100.cfg.KeyProp.LIST_DELIM;
-import static com.github.laim0nas100.cfg.KeyProp.NESTING_DELIM;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.BigInteger;
@@ -33,10 +31,19 @@ import java.util.function.Supplier;
  */
 public interface TolerantConfig {
 
+    public static final String LIST_DELIM = ";";
+    public static final String NESTING_DELIM = ".";
+
+    /**
+     * Delimiter to separate values inside a list or array
+     */
     public default String conf_listDelim() {
         return LIST_DELIM;
     }
 
+    /**
+     * Delimiter to separate nested values
+     */
     public default String conf_nestingDelim() {
         return NESTING_DELIM;
     }
