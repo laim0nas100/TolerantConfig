@@ -90,10 +90,10 @@ public abstract class KeyProp {
             this.cachable = false;
         }
 
-        protected BuilderShared(BuilderShared old) {
-            this.cachable = old.cachable;
-            this.key = old.key;
-            this.fun = old.fun;
+        protected BuilderShared(BuilderShared prev) {
+            this.cachable = prev.cachable;
+            this.key = prev.key;
+            this.fun = prev.fun;
         }
 
         protected ConversionTolerantFunction getFinalFunction() {
@@ -124,16 +124,16 @@ public abstract class KeyProp {
 
     public static class MappedBuilder<S, R> extends BuilderShared<R> {
 
-        protected Function<S, ? extends R> mapper;
+        protected final Function<S, ? extends R> mapper;
 
         public MappedBuilder(BuilderShared previous, Function<S, ? extends R> mapper) {
             super(previous);
             this.mapper = Objects.requireNonNull(mapper);
         }
 
-        public MappedBuilder(MappedBuilder old) {
-            super(old);
-            this.mapper = old.mapper;
+        public MappedBuilder(MappedBuilder previous) {
+            super(previous);
+            this.mapper = previous.mapper;
         }
 
         @Override
@@ -143,12 +143,6 @@ public abstract class KeyProp {
                 @Override
                 public R convert(TolerantConfig t) throws Exception {
                     S source = original.convert(t);
-                    return mapper.apply(source);
-                }
-
-                @Override
-                public R apply(TolerantConfig t) {
-                    S source = original.apply(t);
                     return mapper.apply(source);
                 }
             };
@@ -250,6 +244,8 @@ public abstract class KeyProp {
         /**
          * Return the first resolved value based on this KeyProperty behavior
          * from the supplied TolerantConfig array. The default entry point.
+         * Usually redirects to {@link KeyProperty#resolveLogic(com.github.laim0nas100.cfg.TolerantConfig...)
+         * } unless there is some special behavior like caching.
          *
          * @param config
          * @return
