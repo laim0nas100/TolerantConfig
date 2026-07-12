@@ -434,11 +434,31 @@ public interface TolerantConfig {
     }
 
     public default Iterator<String> getKeys(String prefix) {
-        return getOr(p -> p.getMap().<Set<Object>>keySet().stream().filter(Objects::nonNull).map(s -> String.valueOf(s)).iterator(), Collections.EMPTY_LIST.iterator());
+        return getOr(p -> p.getMap()
+                .keySet()
+                .stream()
+                .map(s -> {
+                    if (s == null) {
+                        return null;
+                    }
+                    String str = String.valueOf(s);
+                    if (str.startsWith(prefix)) {
+                        return str;
+                    }
+                    return null;
+                })
+                .filter(Objects::nonNull).iterator(), Collections.EMPTY_LIST.iterator()
+        );
     }
 
     public default Iterator<String> getKeys() {
-        return getOr(p -> p.getMap().keySet().stream().map(s -> String.valueOf(s)).iterator(), Collections.EMPTY_LIST.iterator());
+        return getOr(p -> p.getMap()
+                .keySet()
+                .stream()
+                .filter(Objects::nonNull)
+                .map(s -> String.valueOf(s))
+                .iterator(), Collections.EMPTY_LIST.iterator()
+        );
     }
 
     public default boolean getBoolean(String key) {
