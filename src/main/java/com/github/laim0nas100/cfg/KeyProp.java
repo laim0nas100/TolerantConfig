@@ -3,10 +3,7 @@ package com.github.laim0nas100.cfg;
 import com.github.laim0nas100.cfg.TolerantConfig.ConversionTolerantFunction;
 import java.math.BigDecimal;
 import java.math.BigInteger;
-import java.util.Arrays;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.function.Function;
@@ -314,24 +311,24 @@ public abstract class KeyProp {
 
     public static class Cached<T> {
 
-        public static class CachedKey {
+        public static class CachedVal<V> {
 
             public final Object[] array;
-            protected final int hashed;
 
-            public CachedKey(Object[] array) {
+            public V value;
+
+            public CachedVal(Object[] array) {
                 this.array = array;
-                int hash = 3;
-                for (int i = 0; i < array.length; i++) {
-                    Object ob = array[i];
-                    hash += 79 * (ob == null ? i : System.identityHashCode(ob));
-                }
-                hashed = hash;
             }
 
             @Override
             public int hashCode() {
-                return hashed;
+                int hash = 3;
+                for (int i = 0; i < array.length; i++) {
+                    Object ob = array[i];
+                    hash += (ob == null ? i : System.identityHashCode(ob));
+                }
+                return hash;
             }
 
             @Override
@@ -342,9 +339,9 @@ public abstract class KeyProp {
                 if (obj == null) {
                     return false;
                 }
-                if (obj instanceof CachedKey) {
-                    final CachedKey other = (CachedKey) obj;
-                    if (other.hashed == this.hashed && other.array.length == this.array.length) {
+                if (obj instanceof CachedVal) {
+                    final CachedVal other = (CachedVal) obj;
+                    if (other.array.length == this.array.length) {
                         for (int i = 0; i < this.array.length; i++) {
                             if (this.array[i] != other.array[i]) {
                                 return false;
@@ -359,8 +356,9 @@ public abstract class KeyProp {
         }
 
         public static int MAX_CACHE_SIZE = 8;
-        // FIFO cache
-        protected Map<CachedKey, T> cached = new LinkedHashMap<>(MAX_CACHE_SIZE + 2);
+        // linear cache
+        protected CachedVal<T>[] cached = new CachedVal[MAX_CACHE_SIZE];
+        protected int index = 0;
         private final Object lock = new Object();
 
         protected final KeyProperty<T> property;
@@ -371,25 +369,40 @@ public abstract class KeyProp {
 
         /**
          *
-         * @param property should not change
          * @param prop
-         * @return
+         * @return resolved or cached value basd on passed TolerantConfig
+         * combination
          */
         public T resolveCached(TolerantConfig... prop) {
 
             TolerantConfig[] props = prop;
-            CachedKey key = new CachedKey(props);
-            T got = cached.getOrDefault(key, null);
-            if (got != null) {
-                return got;
+            CachedVal cv = new CachedVal(props);
+            int checkedIndex = index;
+            for (CachedVal<T> cachedVal : cached) { // linear search performs faster than map lookup
+                if (cachedVal == null) {// the rest is empty
+                    break;
+                }
+                if (cv.equals(cachedVal)) {
+                    return cachedVal.value;
+                }
             }
 
-            synchronized (lock) {// in a rare case resolving can occur more than once, trade-off
-                T resolve = property._resolveLogic(prop);
-                cached.put(key, resolve);
-                while (cached.size() > MAX_CACHE_SIZE) {
-                    cached.remove(cached.keySet().iterator().next());
+            synchronized (lock) {
+                // in a rare case resolving same property can occur more than once, we recheck. Use index for modification indicator
+                if (checkedIndex != index) {
+                    for (CachedVal<T> cachedVal : cached) {
+                        if (cachedVal == null) {
+                            break;
+                        }
+                        if (cv.equals(cachedVal)) {
+                            return cachedVal.value;
+                        }
+                    }
                 }
+                T resolve = property._resolveLogic(prop);
+                cv.value = resolve;
+                cached[index] = cv;// add or replace
+                index = (index + 1) % MAX_CACHE_SIZE;
                 return resolve;
             }
 
