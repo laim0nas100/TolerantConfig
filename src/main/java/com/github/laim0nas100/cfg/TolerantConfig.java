@@ -122,7 +122,7 @@ public interface TolerantConfig {
         @Override
         public String recursiveInterpolation(int limit, String value, String defaultValue) {
             ConfigSettings settings = conf();
-            if (limit <= 0 || !settings.interpolate()) {
+            if (!settings.interpolate() || limit <= 0) {
                 return value;
             }
             String pre = settings.prefixInterpolation();
@@ -146,7 +146,7 @@ public interface TolerantConfig {
                     interpolated = defaultValue;
                 } else {
                     if (settings.continueInterpolationEnvironment()) {
-                        interpolated = recursiveInterpolation(limit - 1, envProp, defaultValue);
+                        interpolated = new NestedInterpolation(this, limit - 1).getStringFromToken(envProp, defaultValue);
                     } else {
                         interpolated = envProp;
                     }
@@ -160,23 +160,21 @@ public interface TolerantConfig {
                     interpolated = defaultValue;
                 } else {
                     if (settings.continueInterpolationEnvironment()) {
-                        interpolated = recursiveInterpolation(limit - 1, property, defaultValue);
+                        interpolated = new NestedInterpolation(this, limit - 1).getStringFromToken(property, defaultValue);
                     } else {
                         interpolated = property;
                     }
                 }
             } else {
                 // extract local
-                if (limit <= 0) {
-                    return value;
-                }
                 interpolated = new NestedInterpolation(this, limit - 1).getStringFromToken(token, defaultValue);
             }
 
             return new StringBuilder()
                     .append(value.substring(0, start))
                     .append(interpolated)
-                    .append(recursiveInterpolation(limit, value.substring(end + suff.length()), defaultValue))
+                    // don't start new nesting fork, it's the same string just later on
+                    .append(recursiveInterpolation(limit, value.substring(end + suff.length()), defaultValue)) 
                     .toString();
 
         }
@@ -763,8 +761,8 @@ public interface TolerantConfig {
     }
 
     /**
-     * Returns a frozen truncated subset based on given prefix.
-     * Eager interpolation.
+     * Returns a frozen truncated subset based on given prefix. Eager
+     * interpolation.
      *
      * @param prefix
      * @return
@@ -800,7 +798,8 @@ public interface TolerantConfig {
      * Get all current entries and put into a Properties object with key and
      * object modification function which is then returned.
      *
-     * Null keys are not inserted. Eager interpolation. Freezes the returned map.
+     * Null keys are not inserted. Eager interpolation. Freezes the returned
+     * map.
      *
      * @param keyMod
      * @param objectMod

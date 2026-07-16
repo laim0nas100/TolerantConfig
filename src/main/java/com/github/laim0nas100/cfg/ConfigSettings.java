@@ -5,7 +5,6 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
-import static jdk.nashorn.internal.objects.NativeArray.map;
 
 /**
  *
