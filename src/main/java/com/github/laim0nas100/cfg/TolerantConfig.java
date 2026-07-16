@@ -156,7 +156,7 @@ public interface TolerantConfig {
                 String envProp = System.getenv(token);
                 if (envProp == null) {
                     if (settings.strictMode()) {
-                        throw new StrictModeException("String mode, failed to resolve environment variable:" + token);
+                        throw new StrictModeException("failed to resolve environment variable:" + token);
                     }
                     interpolated = defaultValue;
                 } else {
@@ -173,7 +173,7 @@ public interface TolerantConfig {
                 String property = System.getProperty(token);
                 if (property == null) {
                     if (settings.strictMode()) {
-                        throw new StrictModeException("String mode, failed to resolve system property:" + token);
+                        throw new StrictModeException("failed to resolve system property:" + token);
                     }
                     interpolated = defaultValue;
                 } else {
@@ -324,9 +324,13 @@ public interface TolerantConfig {
         public default T apply(TolerantConfig t, String key, A param1) {
             try {
                 return convert(t, key, param1);
+            } catch (StrictModeException strict) {
+                if (t.conf().strictMode()) {// rethrow
+                    throw strict;
+                }
             } catch (Exception ex) {
-                return null;
             }
+            return null;
         }
 
     }
@@ -338,9 +342,13 @@ public interface TolerantConfig {
         public default T apply(TolerantConfig t, String key) {
             try {
                 return convert(t, key);
+            } catch (StrictModeException strict) {
+                if (t.conf().strictMode()) {// rethrow
+                    throw strict;
+                }
             } catch (Exception ex) {
-                return null;
             }
+            return null;
         }
 
     }
@@ -699,7 +707,7 @@ public interface TolerantConfig {
      * @return
      */
     public default <T, A> T getOrThrow2(String key, A param1, ConversionTolerantFunction2<T, A> func) {
-       T value = null;
+        T value = null;
         try {
             value = func.convert(this, key, param1);
         } catch (StrictModeException ex) {

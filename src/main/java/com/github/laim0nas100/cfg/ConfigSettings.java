@@ -106,6 +106,7 @@ public interface ConfigSettings {
             return trimInterpolated;
         }
 
+        @Override
         public boolean strictMode() {
             return strictMode;
         }
@@ -283,7 +284,7 @@ public interface ConfigSettings {
 
     /**
      * If you want to actually throw on missing/misconfigured properties. Even
-     * throws in failed interpolation.
+     * throws in failed interpolation. Default false.
      */
     public default boolean strictMode() {
         return false;

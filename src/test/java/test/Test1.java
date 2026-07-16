@@ -26,7 +26,7 @@ public class Test1 {
         map.put("some.property2", "   ${some.property.greeting} ${env:temporary}   ");
         MutableConfigSettings settings = new MutableConfigSettings();
         settings.trimInterpolated = true;
-        settings.strictMode = false;
+        settings.strictMode = true;
         TolerantConfig conf = TolerantConfig.of(settings,map);
         System.out.println(conf.getStringTrim("some.property2"));
         System.out.println();
