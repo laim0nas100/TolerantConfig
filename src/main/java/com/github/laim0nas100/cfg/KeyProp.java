@@ -3,6 +3,7 @@ package com.github.laim0nas100.cfg;
 import com.github.laim0nas100.cfg.TolerantConfig.ConversionTolerantFunction;
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -20,59 +21,59 @@ import java.util.stream.Stream;
 public abstract class KeyProp {
 
     public static <T> Builder<T> ofAny(String key) {
-        return new Builder<>(key, f -> f.getRaw(key));
+        return new Builder<>(key, (f, k) -> f.getRaw(k));
     }
 
     public static Builder<Boolean> ofBoolean(String key) {
-        return new Builder<>(key, f -> f.getBoolean(key));
+        return new Builder<>(key, (f, k) -> f.getBoolean(k));
     }
 
     public static Builder<String> ofString(String key) {
-        return new Builder<>(key, f -> f.getString(key));
+        return new Builder<>(key, (f, k) -> f.getString(k));
     }
 
     public static Builder<Integer> ofInteger(String key) {
-        return new Builder<>(key, f -> f.getInt(key));
+        return new Builder<>(key, (f, k) -> f.getInt(k));
     }
 
     public static Builder<Long> ofLong(String key) {
-        return new Builder<>(key, f -> f.getLong(key));
+        return new Builder<>(key, (f, k) -> f.getLong(k));
     }
 
     public static Builder<Float> ofFloat(String key) {
-        return new Builder<>(key, f -> f.getFloat(key));
+        return new Builder<>(key, (f, k) -> f.getFloat(k));
     }
 
     public static Builder<Double> ofDouble(String key) {
-        return new Builder<>(key, f -> f.getDouble(key));
+        return new Builder<>(key, (f, k) -> f.getDouble(k));
     }
 
     public static Builder<BigInteger> ofBigInteger(String key) {
-        return new Builder<>(key, f -> f.getBigInteger(key));
+        return new Builder<>(key, (f, k) -> f.getBigInteger(k));
     }
 
     public static Builder<BigDecimal> ofBigDecimal(String key) {
-        return new Builder<>(key, f -> f.getBigDecimal(key));
+        return new Builder<>(key, (f, k) -> f.getBigDecimal(k));
     }
 
     public static Builder<String[]> ofStringArray(String key) {
-        return new Builder<>(key, f -> f.getStringArray(key));
+        return new Builder<>(key, (f, k) -> f.getStringArray(k));
     }
 
     public static Builder<List<String>> ofStringList(String key) {
-        return new Builder<>(key, f -> f.getList(key));
+        return new Builder<>(key, (f, k) -> f.getList(k));
     }
 
     public static <C extends Enum<C>> Builder<C> ofEnum(String key, Class<C> type) {
         Objects.requireNonNull(key);
         Objects.requireNonNull(type);
-        return new Builder<>(key, c -> c.getEnum(key, type));
+        return new Builder<>(key, (c, k) -> c.getEnum(k, type));
     }
 
     public static <C extends Enum<C>> Builder<C> ofEnum(String key, C defaultEnum) {
         Objects.requireNonNull(key);
         Objects.requireNonNull(defaultEnum);
-        return new Builder<>(key, c -> c.getEnum(key, defaultEnum));
+        return new Builder<>(key, (c, k) -> c.getEnum(k, defaultEnum));
     }
 
     public static abstract class BuilderShared<T> {
@@ -138,8 +139,8 @@ public abstract class KeyProp {
             final ConversionTolerantFunction<? extends S> original = super.getFinalFunction();
             return new ConversionTolerantFunction<R>() {
                 @Override
-                public R convert(TolerantConfig t) throws Exception {
-                    S source = original.convert(t);
+                public R convert(TolerantConfig t, String key) throws Exception {
+                    S source = original.convert(t, key);
                     return mapper.apply(source);
                 }
             };
@@ -241,14 +242,14 @@ public abstract class KeyProp {
         /**
          * Return the first resolved value based on this KeyProperty behavior
          * from the supplied TolerantConfig array. The default entry point.
-         * Usually redirects to {@link KeyProperty#resolveLogic(com.github.laim0nas100.cfg.TolerantConfig...)
+         * Usually redirects to {@link KeyProperty#_resolveLogic(com.github.laim0nas100.cfg.TolerantConfig[])
          * } unless there is some special behavior like caching.
          *
          * @param config
          * @return
          */
         public default T resolve(TolerantConfig... config) {
-            return resolveLogic(config);
+            return _resolveLogic(config);
         }
 
         /**
@@ -258,7 +259,7 @@ public abstract class KeyProp {
          * @param config
          * @return
          */
-        public T resolveLogic(TolerantConfig... config);
+        public T _resolveLogic(TolerantConfig... config);
 
         /**
          * Return the first resolved value associated with this KeyProperty from
@@ -268,7 +269,7 @@ public abstract class KeyProp {
          * @return
          */
         public default T resolveThrowIfNull(TolerantConfig... config) {
-            T resolve = resolveLogic(config);
+            T resolve = _resolveLogic(config);
             if (resolve == null) {
                 throw new NoSuchElementException(getKey() + " resolves to a null");
             }
@@ -313,12 +314,53 @@ public abstract class KeyProp {
 
     public static class Cached<T> {
 
+        public static class CachedKey {
+
+            public final Object[] array;
+            protected final int hashed;
+
+            public CachedKey(Object[] array) {
+                this.array = array;
+                int hash = 3;
+                for (int i = 0; i < array.length; i++) {
+                    Object ob = array[i];
+                    hash += 79 * (ob == null ? i : System.identityHashCode(ob));
+                }
+                hashed = hash;
+            }
+
+            @Override
+            public int hashCode() {
+                return hashed;
+            }
+
+            @Override
+            public boolean equals(Object obj) {
+                if (this == obj) {
+                    return true;
+                }
+                if (obj == null) {
+                    return false;
+                }
+                if (obj instanceof CachedKey) {
+                    final CachedKey other = (CachedKey) obj;
+                    if (other.hashed == this.hashed && other.array.length == this.array.length) {
+                        for (int i = 0; i < this.array.length; i++) {
+                            if (this.array[i] != other.array[i]) {
+                                return false;
+                            }
+                        }
+                        return true;
+                    }
+                }
+                return false;
+            }
+
+        }
+
         public static int MAX_CACHE_SIZE = 8;
         // FIFO cache
-        protected Map<TolerantConfig, T> cached = new LinkedHashMap<>(MAX_CACHE_SIZE + 2);
-        protected boolean isEmptyCached;
-        protected T emptyCached; // only relevant if config returns default value that can be mapped
-
+        protected Map<CachedKey, T> cached = new LinkedHashMap<>(MAX_CACHE_SIZE + 2);
         private final Object lock = new Object();
 
         protected final KeyProperty<T> property;
@@ -335,36 +377,18 @@ public abstract class KeyProp {
          */
         public T resolveCached(TolerantConfig... prop) {
 
-            if (prop.length == 0 && isEmptyCached) {
-                return emptyCached;
-            }
-            for (TolerantConfig prop1 : prop) {
-                if (cached.containsKey(prop1)) {
-                    return cached.get(prop1);
-                }
+            TolerantConfig[] props = prop;
+            CachedKey key = new CachedKey(props);
+            T got = cached.getOrDefault(key, null);
+            if (got != null) {
+                return got;
             }
 
-            synchronized (lock) {
-                T resolve = property.resolveLogic(prop);
-                if (prop.length == 0) {
-                    isEmptyCached = true;
-                    emptyCached = resolve;
-                } else {
-                    if (prop.length == 1) {
-                        cached.put(prop[0], resolve);
-                    } else {
-                        for (int i = 0; i < prop.length; i++) {
-                            if (prop[i].containsKey(property.getKey())) {// resolve again, hopefully types match
-                                if (Objects.equals(property.resolveLogic(prop[i]), resolve)) {
-                                    cached.put(prop[i], resolve);
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                    while (cached.size() > MAX_CACHE_SIZE) {
-                        cached.remove(cached.keySet().iterator().next());
-                    }
+            synchronized (lock) {// in a rare case resolving can occur more than once, trade-off
+                T resolve = property._resolveLogic(prop);
+                cached.put(key, resolve);
+                while (cached.size() > MAX_CACHE_SIZE) {
+                    cached.remove(cached.keySet().iterator().next());
                 }
                 return resolve;
             }
@@ -390,11 +414,11 @@ public abstract class KeyProp {
             if (cache != null) {
                 return cache.resolveCached(config);
             }
-            return resolveLogic(config);
+            return _resolveLogic(config);
         }
 
         @Override
-        public T resolveLogic(TolerantConfig... config) {
+        public T _resolveLogic(TolerantConfig... config) {
 
             if (config == null || config.length == 0) {
                 throw new IllegalArgumentException("No config was provided");
@@ -417,12 +441,12 @@ public abstract class KeyProp {
 
         @Override
         public T explicitResolve(TolerantConfig config) throws Exception {
-            return fun.convert(Objects.requireNonNull(config));
+            return fun.convert(Objects.requireNonNull(config), getKey());
         }
 
         @Override
         public T tolerantResolve(TolerantConfig config) {
-            return fun.apply(Objects.requireNonNull(config));
+            return fun.apply(Objects.requireNonNull(config), getKey());
         }
 
         @Override
@@ -441,7 +465,7 @@ public abstract class KeyProp {
         }
 
         @Override
-        public T resolveLogic(TolerantConfig... prop) {
+        public T _resolveLogic(TolerantConfig... prop) {
             if (prop == null || prop.length == 0) {
                 return getDefault();
             }
@@ -451,7 +475,7 @@ public abstract class KeyProp {
                     throw new IllegalArgumentException("TolerantConfig at index " + i + " is null");
                 }
                 if (conf.containsKey(key)) {
-                    T resolved = fun.apply(conf);
+                    T resolved = fun.apply(conf, key);
                     if (resolved != null) {
                         return resolved;
                     }
@@ -477,8 +501,8 @@ public abstract class KeyProp {
         }
 
         @Override
-        public T resolveLogic(TolerantConfig... config) {
-            return super.resolveLogic(
+        public T _resolveLogic(TolerantConfig... config) {
+            return super._resolveLogic(
                     Stream.concat(
                             Stream.of(config),
                             preparedConfigs.get().stream()
@@ -497,8 +521,8 @@ public abstract class KeyProp {
         }
 
         @Override
-        public T resolveLogic(TolerantConfig... config) {
-            T resolved = super.resolveLogic(config);
+        public T _resolveLogic(TolerantConfig... config) {
+            T resolved = super._resolveLogic(config);
             if (resolved == null) {
                 return getDefault();
             }

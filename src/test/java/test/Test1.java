@@ -1,5 +1,7 @@
 package test;
 
+import com.github.laim0nas100.cfg.ConfigSettings;
+import com.github.laim0nas100.cfg.ConfigSettings.MutableConfigSettings;
 import com.github.laim0nas100.cfg.TolerantConfig;
 import java.util.HashMap;
 import java.util.Map;
@@ -7,7 +9,7 @@ import org.junit.Test;
 
 /**
  *
- * @author Lemmin
+ * @author laim0nas100
  */
 public class Test1 {
 
@@ -18,12 +20,14 @@ public class Test1 {
         }
 
         Map<String, String> map = new HashMap();
-        map.put("some.property.name", "John");
-        map.put("some.property.surname", "Cena");
+        map.put("some.property.name", " John ");
+        map.put("some.property.surname", " Cena ");
         map.put("some.property.greeting", "and his name is ${some.property.name} ${some.property.surname}");
-        map.put("some.property2", "${some.property1} ${env:tmp}");
-        TolerantConfig conf = TolerantConfig.of(map);
-        System.out.println(conf.getString("some.property2"));
+        map.put("some.property2", "   ${some.property.greeting} ${env:tmp}   ");
+        MutableConfigSettings settings = new MutableConfigSettings();
+        settings.trimInterpolated = true;
+        TolerantConfig conf = TolerantConfig.of(settings,map);
+        System.out.println(conf.getStringTrim("some.property2"));
         System.out.println();
     }
 

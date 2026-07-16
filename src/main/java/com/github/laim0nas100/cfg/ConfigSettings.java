@@ -32,6 +32,7 @@ public interface ConfigSettings {
         public boolean continueInterpolationEnvironment = false;
         public boolean trimWhitespace = true;
         public boolean trimListWhitespace = false;
+        public boolean trimInterpolated = false;
         public int recursiveInterpolationLimit = INTERPOLATION_LIMIT;
 
         @Override
@@ -90,11 +91,6 @@ public interface ConfigSettings {
         }
 
         @Override
-        public int recursiveInterpolationLimit() {
-            return recursiveInterpolationLimit;
-        }
-
-        @Override
         public boolean continueInterpolationSystem() {
             return continueInterpolationSystem;
         }
@@ -104,6 +100,15 @@ public interface ConfigSettings {
             return continueInterpolationEnvironment;
         }
 
+        @Override
+        public boolean trimInterpolated() {
+            return trimInterpolated;
+        }
+        
+        @Override
+        public int recursiveInterpolationLimit() {
+            return recursiveInterpolationLimit;
+        }
     }
 
     /**
@@ -204,6 +209,15 @@ public interface ConfigSettings {
     }
 
     /**
+     * Toggle optional string trimming during interpolation. Default false.
+     *
+     * @return
+     */
+    public default boolean trimInterpolated() {
+        return false;
+    }
+
+    /**
      *
      * @return Interpolation token prefix.
      */
@@ -264,7 +278,8 @@ public interface ConfigSettings {
 
     /**
      * Turns off interpolation while preserving every other setting.
-     * @return 
+     *
+     * @return
      */
     public default ConfigSettings wihtoutIterpolation() {
         ConfigSettings me = this;

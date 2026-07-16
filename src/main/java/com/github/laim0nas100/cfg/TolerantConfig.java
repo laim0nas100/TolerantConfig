@@ -46,7 +46,8 @@ public interface TolerantConfig {
          * @return
          */
         public default String getStringFromToken(String token, String defaultValue) {
-            return getString(token, defaultValue);
+            String value = conf().trimInterpolated() ? strTrim(token) : str(token);
+            return value == null ? defaultValue : value;
         }
 
         /**
@@ -173,8 +174,8 @@ public interface TolerantConfig {
             return new StringBuilder()
                     .append(value.substring(0, start))
                     .append(interpolated)
-                    // don't start new nesting fork, it's the same string just later on
-                    .append(recursiveInterpolation(limit, value.substring(end + suff.length()), defaultValue)) 
+                    // don't start new nesting fork, it's the same string continuation
+                    .append(recursiveInterpolation(limit, value.substring(end + suff.length()), defaultValue))
                     .toString();
 
         }
@@ -299,14 +300,27 @@ public interface TolerantConfig {
         return ofSuplier(new CachingConfSupplier(supply));
     }
 
-    public static interface ConversionTolerantFunction<T> extends Function<TolerantConfig, T> {
+    public static interface ConversionTolerantFunction2<T, A> {
 
-        public T convert(TolerantConfig t) throws Exception;
+        public T convert(TolerantConfig t, String key, A param1) throws Exception;
 
-        @Override
-        public default T apply(TolerantConfig t) {
+        public default T apply(TolerantConfig t, String key, A param1) {
             try {
-                return convert(t);
+                return convert(t, key, param1);
+            } catch (Exception ex) {
+                return null;
+            }
+        }
+
+    }
+
+    public static interface ConversionTolerantFunction<T> {
+
+        public T convert(TolerantConfig t, String key) throws Exception;
+
+        public default T apply(TolerantConfig t, String key) {
+            try {
+                return convert(t, key);
             } catch (Exception ex) {
                 return null;
             }
@@ -392,7 +406,7 @@ public interface TolerantConfig {
      * @return
      */
     public default <T> T getRaw(String key) {
-        return getOrThrow(key, f -> (T) f.getMap().get(key));
+        return getOrThrow(key, (p, k) -> (T) p.getMap().get(k));
     }
 
     /**
@@ -512,8 +526,23 @@ public interface TolerantConfig {
      * @param ifNot
      * @return
      */
-    public default <T> T getOr(ConversionTolerantFunction<T> func, T ifNot) {
-        return Optional.ofNullable(this).map(func).orElse(ifNot);
+    public default <T> T getOr(String key, ConversionTolerantFunction<T> func, T ifNot) {
+        T value = func.apply(this, key);
+        return value == null ? ifNot : value;
+    }
+
+    /**
+     * Get the property converted to specified type using the conversion
+     * function or return the given default if property was not present or
+     * conversion has failed
+     *
+     * @param func
+     * @param ifNot
+     * @return
+     */
+    public default <T, A> T getOr2(String key, A param1, ConversionTolerantFunction2<T, A> func, T ifNot) {
+        T value = func.apply(this, key, param1);
+        return value == null ? ifNot : value;
     }
 
     /**
@@ -525,8 +554,23 @@ public interface TolerantConfig {
      * @param ifNot
      * @return
      */
-    public default <T> T getOrSup(ConversionTolerantFunction<T> func, Supplier<? extends T> ifNot) {
-        return Optional.ofNullable(this).map(func).orElseGet(ifNot);
+    public default <T> T getOrSup(String key, ConversionTolerantFunction<T> func, Supplier<? extends T> ifNot) {
+        T value = func.apply(this, key);
+        return value == null ? ifNot.get() : value;
+    }
+
+    /**
+     * Get the property converted to specified type using the conversion
+     * function or return the given default from a supplier if property was not
+     * present or conversion has failed
+     *
+     * @param func
+     * @param ifNot
+     * @return
+     */
+    public default <T, A> T getOrSup2(String key, A param, ConversionTolerantFunction2<T, A> func, Supplier<? extends T> ifNot) {
+        T value = func.apply(this, key, param);
+        return value == null ? ifNot.get() : value;
     }
 
     /**
@@ -538,8 +582,29 @@ public interface TolerantConfig {
      * @param func
      * @return
      */
-    public default <T> T getOrThrow(String key, Function<TolerantConfig, T> func) {
-        return Optional.ofNullable(this).map(func).orElseThrow(() -> new NoSuchElementException(key));
+    public default <T> T getOrThrow(String key, ConversionTolerantFunction<T> func) {
+        T value = func.apply(this, key);
+        if (value == null) {
+            throw new NoSuchElementException(key);
+        }
+        return value;
+    }
+
+    /**
+     * Get the property converted to specified type using the conversion
+     * function or throw {@link NoSuchElementException} if property was not
+     * present or conversion has failed
+     *
+     * @param key
+     * @param func
+     * @return
+     */
+    public default <T, A> T getOrThrow2(String key, A param1, ConversionTolerantFunction2<T, A> func) {
+        T value = func.apply(this, key, param1);
+        if (value == null) {
+            throw new NoSuchElementException(key);
+        }
+        return value;
     }
 
     /**
@@ -592,15 +657,15 @@ public interface TolerantConfig {
     }
 
     public default boolean containsKey(String key) {
-        return getOr(p -> p.getMap().containsKey(key), false);
+        return getOr(key, (p, k) -> p.getMap().containsKey(k), false);
     }
 
     public default Object getProperty(String key) {
-        return getOr(p -> p.getMap().get(key), null);
+        return getOr(key, (p, k) -> p.getMap().get(k), null);
     }
 
     public default Iterator<String> getKeys(String prefix) {
-        return getOr(p -> p.getMap()
+        return getOr(prefix, (p, pref) -> p.getMap()
                 .keySet()
                 .stream()
                 .map(s -> {
@@ -608,7 +673,7 @@ public interface TolerantConfig {
                         return null;
                     }
                     String str = String.valueOf(s);
-                    if (prefix == null || str.startsWith(prefix)) {
+                    if (pref == null || str.startsWith(pref)) {
                         return str;
                     }
                     return null;
@@ -622,142 +687,150 @@ public interface TolerantConfig {
     }
 
     public default boolean getBoolean(String key) {
-        return getOrThrow(key, p -> Boolean.valueOf(p.strTrim(key)));
+        return getOrThrow(key, (p, k) -> Boolean.valueOf(p.strTrim(k)));
     }
 
     public default Boolean getBoolean(String key, boolean defaultValue) {
-        return getOr(p -> Boolean.valueOf(p.strTrim(key)), defaultValue);
+        return getOr(key, (p, k) -> Boolean.valueOf(p.strTrim(k)), defaultValue);
     }
 
     public default Boolean getBoolean(String key, Boolean defaultValue) {
-        return getOr(p -> Boolean.valueOf(p.strTrim(key)), defaultValue);
+        return getOr(key, (p, k) -> Boolean.valueOf(p.strTrim(k)), defaultValue);
     }
 
     public default byte getByte(String key) {
-        return getOrThrow(key, p -> Byte.valueOf(p.strTrim(key)));
+        return getOrThrow(key, (p, k) -> Byte.valueOf(p.strTrim(k)));
     }
 
     public default Byte getByte(String key, byte defaultValue) {
-        return getOr(p -> Byte.valueOf(p.strTrim(key)), defaultValue);
+        return getOr(key, (p, k) -> Byte.valueOf(p.strTrim(k)), defaultValue);
     }
 
     public default Byte getByte(String key, Byte defaultValue) {
-        return getOr(p -> Byte.valueOf(p.strTrim(key)), defaultValue);
+        return getOr(key, (p, k) -> Byte.valueOf(p.strTrim(k)), defaultValue);
     }
 
     public default double getDouble(String key) {
-        return getOrThrow(key, p -> Double.valueOf(p.strTrim(key)));
+        return getOrThrow(key, (p, k) -> Double.valueOf(p.strTrim(k)));
     }
 
     public default Double getDouble(String key, double defaultValue) {
-        return getOr(p -> Double.valueOf(p.strTrim(key)), defaultValue);
+        return getOr(key, (p, k) -> Double.valueOf(p.strTrim(k)), defaultValue);
     }
 
     public default Double getDouble(String key, Double defaultValue) {
-        return getOr(p -> Double.valueOf(p.strTrim(key)), defaultValue);
+        return getOr(key, (p, k) -> Double.valueOf(p.strTrim(k)), defaultValue);
     }
 
     public default float getFloat(String key) {
-        return getOrThrow(key, p -> Float.valueOf(p.strTrim(key)));
+        return getOrThrow(key, (p, k) -> Float.valueOf(p.strTrim(k)));
     }
 
     public default float getFloat(String key, float defaultValue) {
-        return getOr(p -> Float.valueOf(p.strTrim(key)), defaultValue);
+        return getOr(key, (p, k) -> Float.valueOf(p.strTrim(k)), defaultValue);
     }
 
     public default float getFloat(String key, Float defaultValue) {
-        return getOr(p -> Float.valueOf(p.strTrim(key)), defaultValue);
+        return getOr(key, (p, k) -> Float.valueOf(p.strTrim(k)), defaultValue);
     }
 
     public default int getInt(String key) {
-        return getOrThrow(key, p -> Integer.valueOf(p.strTrim(key)));
+        return getOrThrow(key, (p, k) -> Integer.valueOf(p.strTrim(k)));
     }
 
     public default int getInt(String key, int defaultValue) {
-        return getOr(p -> Integer.valueOf(p.strTrim(key)), defaultValue);
+        return getOr(key, (p, k) -> Integer.valueOf(p.strTrim(k)), defaultValue);
     }
 
     public default Integer getInt(String key, Integer defaultValue) {
-        return getOr(p -> Integer.valueOf(p.strTrim(key)), defaultValue);
+        return getOr(key, (p, k) -> Integer.valueOf(p.strTrim(k)), defaultValue);
     }
 
     public default long getLong(String key) {
-        return getOrThrow(key, p -> Long.valueOf(p.strTrim(key)));
+        return getOrThrow(key, (p, k) -> Long.valueOf(p.strTrim(k)));
     }
 
     public default long getLong(String key, long defaultValue) {
-        return getOr(p -> Long.valueOf(p.strTrim(key)), defaultValue);
+        return getOr(key, (p, k) -> Long.valueOf(p.strTrim(k)), defaultValue);
     }
 
     public default Long getLong(String key, Long defaultValue) {
-        return getOr(p -> Long.valueOf(p.strTrim(key)), defaultValue);
+        return getOr(key, (p, k) -> Long.valueOf(p.strTrim(k)), defaultValue);
     }
 
     public default short getShort(String key) {
-        return getOrThrow(key, p -> Short.valueOf(p.strTrim(key)));
+        return getOrThrow(key, (p, k) -> Short.valueOf(p.strTrim(k)));
     }
 
     public default short getShort(String key, short defaultValue) {
-        return getOr(p -> Short.valueOf(p.strTrim(key)), defaultValue);
+        return getOr(key, (p, k) -> Short.valueOf(p.strTrim(k)), defaultValue);
     }
 
     public default Short getShort(String key, Short defaultValue) {
-        return getOr(p -> Short.valueOf(p.strTrim(key)), defaultValue);
+        return getOr(key, (p, k) -> Short.valueOf(p.strTrim(k)), defaultValue);
     }
 
     public default BigDecimal getBigDecimal(String key) {
-        return getOrThrow(key, p -> new BigDecimal(p.strTrim(key)));
+        return getOrThrow(key, (p, k) -> new BigDecimal(p.strTrim(k)));
     }
 
     public default BigDecimal getBigDecimal(String key, BigDecimal defaultValue) {
-        return getOr(p -> new BigDecimal(p.strTrim(key)), defaultValue);
+        return getOr(key, (p, k) -> new BigDecimal(p.strTrim(k)), defaultValue);
     }
 
     public default BigInteger getBigInteger(String key) {
-        return getOrThrow(key, p -> new BigInteger(p.strTrim(key)));
+        return getOrThrow(key, (p, k) -> new BigInteger(p.strTrim(k)));
     }
 
     public default BigInteger getBigInteger(String key, BigInteger defaultValue) {
-        return getOr(p -> new BigInteger(p.strTrim(key)), defaultValue);
+        return getOr(key, (p, k) -> new BigInteger(p.strTrim(k)), defaultValue);
     }
 
     public default String getString(String key) {
-        return getOrThrow(key, p -> p.str(key));
+        return getOrThrow(key, (p, k) -> p.str(k));
     }
 
     public default String getString(String key, String defaultValue) {
-        return getOr(p -> p.str(key), defaultValue);
+        return getOr(key, (p, k) -> p.str(k), defaultValue);
+    }
+    
+    public default String getStringTrim(String key) {
+        return getOrThrow(key, (p, k) -> p.strTrim(k));
+    }
+
+    public default String getStringTrim(String key, String defaultValue) {
+        return getOr(key, (p, k) -> p.strTrim(k), defaultValue);
     }
 
     public default String[] getStringArray(String key) {
-        return getOrThrow(key, p -> Util.splitArray(p.str(key), p.conf().listDelim(), p.conf().trimListWhiteSpace()));
+        return getOrThrow(key, (p, k) -> Util.splitArray(p.str(k), p.conf().listDelim(), p.conf().trimListWhiteSpace()));
     }
 
     public default String[] getStringArray(String key, String[] defaultValue) {
-        return getOr(p -> Util.splitArray(p.str(key), p.conf().listDelim(), p.conf().trimListWhiteSpace()), defaultValue);
+        return getOr(key, (p, k) -> Util.splitArray(p.str(k), p.conf().listDelim(), p.conf().trimListWhiteSpace()), defaultValue);
     }
 
     public default <C extends Enum<C>> C getEnum(String key, Class<C> enumType) {
-        return getOrThrow(key, p -> {
-            String name = p.strTrim(key);
-            return Util.enumMatch(enumType, name)
-                    .orElseThrow(() -> new IllegalArgumentException("Failed to match enum " + enumType.getSimpleName() + " by name " + name));
+        return getOrThrow2(key, enumType, (p, k, type) -> {
+            String name = p.strTrim(k);
+            return Util.enumMatch(type, name)
+                    .orElseThrow(() -> new IllegalArgumentException("Failed to match enum " + type.getSimpleName() + " by name " + name));
 
         });
     }
 
     public default <C extends Enum<C>> C getEnum(String key, C defaultEnum) {
-        return getOr(p -> {
-            return Util.enumMatch(defaultEnum.getDeclaringClass(), p.strTrim(key)).orElse(defaultEnum);
+        return getOr2(key, defaultEnum, (p, k, en) -> {
+            return Util.enumMatch(en.getDeclaringClass(), p.strTrim(k)).orElse(en);
         }, defaultEnum);
     }
 
     public default List<String> getList(String key) {
-        return getOrThrow(key, p -> Util.split(p.str(key), p.conf().listDelim(), p.conf().trimListWhiteSpace()));
+        return getOrThrow(key, (p, k) -> Util.split(p.str(k), p.conf().listDelim(), p.conf().trimListWhiteSpace()));
     }
 
     public default List<String> getList(String key, List<String> defaultValue) {
-        return getOr(p -> Util.split(p.str(key), p.conf().listDelim(), p.conf().trimWhitespace()), defaultValue);
+        return getOr(key, (p, k) -> Util.split(p.str(k), p.conf().listDelim(), p.conf().trimWhitespace()), defaultValue);
     }
 
     /**
@@ -768,7 +841,7 @@ public interface TolerantConfig {
      * @return
      */
     public default TolerantConfig subset(String prefix) {
-        return getOr(p -> TolerantConfig.of(p.conf().wihtoutIterpolation(), p.subMap(prefix)), TolerantConfig.empty);
+        return getOr(prefix, (p, pref) -> TolerantConfig.of(p.conf().wihtoutIterpolation(), p.subMap(pref)), TolerantConfig.empty);
     }
 
     /**
