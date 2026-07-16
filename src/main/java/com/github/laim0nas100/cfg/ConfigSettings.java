@@ -33,6 +33,7 @@ public interface ConfigSettings {
         public boolean trimWhitespace = true;
         public boolean trimListWhitespace = false;
         public boolean trimInterpolated = false;
+        public boolean strictMode = false;
         public int recursiveInterpolationLimit = INTERPOLATION_LIMIT;
 
         @Override
@@ -104,7 +105,11 @@ public interface ConfigSettings {
         public boolean trimInterpolated() {
             return trimInterpolated;
         }
-        
+
+        public boolean strictMode() {
+            return strictMode;
+        }
+
         @Override
         public int recursiveInterpolationLimit() {
             return recursiveInterpolationLimit;
@@ -147,7 +152,7 @@ public interface ConfigSettings {
     public static final String SYSTEM_PREFIX = "sys:";
     public static final String ENVIRONMENT_PREFIX = "env:";
 
-    public static final Integer INTERPOLATION_LIMIT = 128; // arbitrary limit, lees than jvm stack siZe.
+    public static final Integer INTERPOLATION_LIMIT = 128; // arbitrary limit
 
     /**
      * Delimiter to separate values inside a list or array
@@ -277,11 +282,19 @@ public interface ConfigSettings {
     }
 
     /**
+     * If you want to actually throw on missing/misconfigured properties. Even
+     * throws in failed interpolation.
+     */
+    public default boolean strictMode() {
+        return false;
+    }
+
+    /**
      * Turns off interpolation while preserving every other setting.
      *
      * @return
      */
-    public default ConfigSettings wihtoutIterpolation() {
+    public default ConfigSettings withoutInterpolation() {
         ConfigSettings me = this;
         return new ConfigSettings() {
             @Override
@@ -355,8 +368,18 @@ public interface ConfigSettings {
             }
 
             @Override
-            public ConfigSettings wihtoutIterpolation() {
-                return me.wihtoutIterpolation();
+            public ConfigSettings withoutInterpolation() {
+                return me.withoutInterpolation();
+            }
+
+            @Override
+            public boolean strictMode() {
+                return me.strictMode();
+            }
+
+            @Override
+            public boolean trimInterpolated() {
+                return me.trimInterpolated();
             }
         };
     }

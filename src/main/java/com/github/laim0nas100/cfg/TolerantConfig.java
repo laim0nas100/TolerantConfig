@@ -16,7 +16,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Properties;
 import java.util.Set;
 import java.util.function.Function;
@@ -35,6 +34,18 @@ import java.util.stream.Stream;
  * @author laim0nas100
  */
 public interface TolerantConfig {
+
+    public static class StrictModeException extends RuntimeException {
+
+        public StrictModeException(String string) {
+            super(string);
+        }
+
+        public StrictModeException(String string, Throwable thrwbl) {
+            super(string, thrwbl);
+        }
+
+    }
 
     public static interface Interpolating extends TolerantConfig {
 
@@ -144,6 +155,9 @@ public interface TolerantConfig {
                 token = token.substring(settings.prefixEnv().length());
                 String envProp = System.getenv(token);
                 if (envProp == null) {
+                    if (settings.strictMode()) {
+                        throw new StrictModeException("String mode, failed to resolve environment variable:" + token);
+                    }
                     interpolated = defaultValue;
                 } else {
                     if (settings.continueInterpolationEnvironment()) {
@@ -158,6 +172,9 @@ public interface TolerantConfig {
                 token = token.substring(settings.prefixSys().length());
                 String property = System.getProperty(token);
                 if (property == null) {
+                    if (settings.strictMode()) {
+                        throw new StrictModeException("String mode, failed to resolve system property:" + token);
+                    }
                     interpolated = defaultValue;
                 } else {
                     if (settings.continueInterpolationEnvironment()) {
@@ -527,8 +544,25 @@ public interface TolerantConfig {
      * @return
      */
     public default <T> T getOr(String key, ConversionTolerantFunction<T> func, T ifNot) {
-        T value = func.apply(this, key);
-        return value == null ? ifNot : value;
+        T value = null;
+        try {
+            value = func.convert(this, key);
+        } catch (StrictModeException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            if (conf().strictMode()) {
+                throw new StrictModeException("failed mapping:" + key, ex);
+            }
+        }
+        if (value == null) {
+            if (conf().strictMode()) {
+                throw new StrictModeException("missing value:" + key);
+            } else {
+                return ifNot;
+            }
+        }
+
+        return value;
     }
 
     /**
@@ -541,8 +575,25 @@ public interface TolerantConfig {
      * @return
      */
     public default <T, A> T getOr2(String key, A param1, ConversionTolerantFunction2<T, A> func, T ifNot) {
-        T value = func.apply(this, key, param1);
-        return value == null ? ifNot : value;
+        T value = null;
+        try {
+            value = func.convert(this, key, param1);
+        } catch (StrictModeException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            if (conf().strictMode()) {
+                throw new StrictModeException("failed mapping:" + key, ex);
+            }
+        }
+        if (value == null) {
+            if (conf().strictMode()) {
+                throw new StrictModeException("missing value:" + key);
+            } else {
+                return ifNot;
+            }
+        }
+
+        return value;
     }
 
     /**
@@ -555,8 +606,25 @@ public interface TolerantConfig {
      * @return
      */
     public default <T> T getOrSup(String key, ConversionTolerantFunction<T> func, Supplier<? extends T> ifNot) {
-        T value = func.apply(this, key);
-        return value == null ? ifNot.get() : value;
+        T value = null;
+        try {
+            value = func.convert(this, key);
+        } catch (StrictModeException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            if (conf().strictMode()) {
+                throw new StrictModeException("failed mapping:" + key, ex);
+            }
+        }
+        if (value == null) {
+            if (conf().strictMode()) {
+                throw new StrictModeException("missing value:" + key);
+            } else {
+                return ifNot.get();
+            }
+        }
+
+        return value;
     }
 
     /**
@@ -569,8 +637,25 @@ public interface TolerantConfig {
      * @return
      */
     public default <T, A> T getOrSup2(String key, A param, ConversionTolerantFunction2<T, A> func, Supplier<? extends T> ifNot) {
-        T value = func.apply(this, key, param);
-        return value == null ? ifNot.get() : value;
+        T value = null;
+        try {
+            value = func.convert(this, key, param);
+        } catch (StrictModeException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            if (conf().strictMode()) {
+                throw new StrictModeException("failed mapping:" + key, ex);
+            }
+        }
+        if (value == null) {
+            if (conf().strictMode()) {
+                throw new StrictModeException("missing value:" + key);
+            } else {
+                return ifNot.get();
+            }
+        }
+
+        return value;
     }
 
     /**
@@ -583,10 +668,24 @@ public interface TolerantConfig {
      * @return
      */
     public default <T> T getOrThrow(String key, ConversionTolerantFunction<T> func) {
-        T value = func.apply(this, key);
-        if (value == null) {
-            throw new NoSuchElementException(key);
+        T value = null;
+        try {
+            value = func.convert(this, key);
+        } catch (StrictModeException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            if (conf().strictMode()) {
+                throw new StrictModeException("failed mapping:" + key, ex);
+            }
         }
+        if (value == null) {
+            if (conf().strictMode()) {
+                throw new StrictModeException("missing value:" + key);
+            } else {
+                throw new NoSuchElementException(key);
+            }
+        }
+
         return value;
     }
 
@@ -600,10 +699,24 @@ public interface TolerantConfig {
      * @return
      */
     public default <T, A> T getOrThrow2(String key, A param1, ConversionTolerantFunction2<T, A> func) {
-        T value = func.apply(this, key, param1);
-        if (value == null) {
-            throw new NoSuchElementException(key);
+       T value = null;
+        try {
+            value = func.convert(this, key, param1);
+        } catch (StrictModeException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            if (conf().strictMode()) {
+                throw new StrictModeException("failed mapping:" + key, ex);
+            }
         }
+        if (value == null) {
+            if (conf().strictMode()) {
+                throw new StrictModeException("missing value:" + key);
+            } else {
+                throw new NoSuchElementException(key);
+            }
+        }
+
         return value;
     }
 
@@ -651,6 +764,9 @@ public interface TolerantConfig {
     public default String str(Object key) {
         Object get = getMap().get(key);
         if (get == null) {
+            if (conf().strictMode()) {
+                throw new StrictModeException("missing value by key:" + key);
+            }
             return null;
         }
         return String.valueOf(get);
@@ -658,10 +774,6 @@ public interface TolerantConfig {
 
     public default boolean containsKey(String key) {
         return getOr(key, (p, k) -> p.getMap().containsKey(k), false);
-    }
-
-    public default Object getProperty(String key) {
-        return getOr(key, (p, k) -> p.getMap().get(k), null);
     }
 
     public default Iterator<String> getKeys(String prefix) {
@@ -793,7 +905,7 @@ public interface TolerantConfig {
     public default String getString(String key, String defaultValue) {
         return getOr(key, (p, k) -> p.str(k), defaultValue);
     }
-    
+
     public default String getStringTrim(String key) {
         return getOrThrow(key, (p, k) -> p.strTrim(k));
     }
@@ -841,7 +953,7 @@ public interface TolerantConfig {
      * @return
      */
     public default TolerantConfig subset(String prefix) {
-        return getOr(prefix, (p, pref) -> TolerantConfig.of(p.conf().wihtoutIterpolation(), p.subMap(pref)), TolerantConfig.empty);
+        return getOr(prefix, (p, pref) -> TolerantConfig.of(p.conf().withoutInterpolation(), p.subMap(pref)), TolerantConfig.empty);
     }
 
     /**
