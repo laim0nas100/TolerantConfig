@@ -1,9 +1,17 @@
 package com.github.laim0nas100.cfg;
 
+import com.github.laim0nas100.cfg.Util.BiOperatorOpt.Terminating;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.EnumSet;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
+import java.util.function.BiFunction;
+import java.util.function.Supplier;
 
 /**
  *
@@ -145,5 +153,152 @@ public abstract class Util {
             }
         }
         return Optional.empty();
+    }
+
+    public static interface BiOperatorOpt<T> {
+
+        public static class Terminating<T> {
+
+            public final boolean terminate;
+            public final T value;
+
+            public Terminating(boolean terminate, T value) {
+                this.terminate = terminate;
+                this.value = value;
+            }
+
+            public static <A> Terminating<A> val(A value) {
+                return new Terminating<>(false, value);
+            }
+
+            public static <A> Terminating<A> end(A value) {
+                return new Terminating<>(true, value);
+            }
+
+        }
+
+        public Terminating<T> terminatingApply(T t, T u);
+
+    }
+
+    public static class CombinedMap<K, V> implements Map<K, V> {
+
+        public CombinedMap(Supplier<List<Map<K, V>>> mapSupplier) {
+            this.mapSupplier = mapSupplier;
+        }
+
+        protected Supplier<List<Map<K, V>>> mapSupplier;
+
+        protected <U> U reduce(U identity,
+                BiFunction<U, ? super Map<K, V>, U> accumulator,
+                BiOperatorOpt<U> combiner) {
+            U result = identity;
+            List<Map<K, V>> get = mapSupplier.get();
+            for (Map<K, V> map : get) {
+                BiOperatorOpt.Terminating<U> terminatingApply = combiner.terminatingApply(result, accumulator.apply(result, map));
+                if (terminatingApply.terminate) {
+                    return terminatingApply.value;
+                }
+                result = terminatingApply.value;
+            }
+            return result;
+        }
+
+        @Override
+        public int size() {
+            return reduce(0, (s, m) -> m.size(), (sum, s) -> Terminating.val(sum + s));
+        }
+
+        @Override
+        public boolean isEmpty() {
+            return reduce(true, (s, m) -> m.isEmpty(), (foundFilled, mapEmpty) -> {
+                if (!mapEmpty) {
+                    return Terminating.end(false);
+                }
+                return Terminating.val(true);
+            });
+        }
+
+        @Override
+        public boolean containsKey(Object key) {
+            return reduce(false, (s, m) -> m.containsKey(key), (foundKey, mapContains) -> {
+                if (mapContains) {
+                    return Terminating.end(true); // terminating
+                }
+                return Terminating.val(false);
+            });
+        }
+
+        @Override
+        public boolean containsValue(Object value) {
+            return reduce(false, (s, m) -> m.containsValue(value), (foundKey, mapContains) -> {
+                if (mapContains) {
+                    return Terminating.end(true); // terminating
+                }
+                return Terminating.val(false);
+            });
+        }
+
+        @Override
+        public V get(Object key) {
+            return reduce(null, (s, m) -> m.get(key), (foundResult, getResult) -> {
+                if (getResult != null) {
+                    return Terminating.end(getResult); // terminating
+                }
+                return Terminating.val(null);
+            });
+        }
+
+        protected RuntimeException assertWrite() {
+            return new UnsupportedOperationException("Read only, combined map");
+        }
+
+        @Override
+        public V put(K key, V value) {
+            throw assertWrite();
+        }
+
+        @Override
+        public V remove(Object key) {
+            throw assertWrite();
+        }
+
+        @Override
+        public void putAll(Map<? extends K, ? extends V> m) {
+            throw assertWrite();
+        }
+
+        @Override
+        public void clear() {
+            throw assertWrite();
+        }
+
+        @Override
+        public Set<K> keySet() {
+            Set<K> keys = new LinkedHashSet<>();
+            return reduce(keys, (s, m) -> m.keySet(), (totalSet, keySet) -> {
+                totalSet.addAll(keySet);
+                return Terminating.val(totalSet);
+            });
+        }
+
+        @Override
+        public Collection<V> values() {
+            Collection<V> vals = new ArrayList<>();
+            return reduce(vals, (s, m) -> m.values(), (total, values) -> {
+                total.addAll(values);
+                return Terminating.val(total);
+            });
+        }
+
+        @Override
+        public Set<Entry<K, V>> entrySet() {
+            Set<Entry<K, V>> entrySet = new LinkedHashSet<>();
+            return reduce(entrySet, (s, m) -> m.entrySet(), (total, entries) -> {
+                total.addAll(entries);
+                return Terminating.val(total);
+            });
+        }
+
     }
 }

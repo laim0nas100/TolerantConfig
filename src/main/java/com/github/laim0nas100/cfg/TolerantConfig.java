@@ -1,12 +1,15 @@
 package com.github.laim0nas100.cfg;
 
+import com.github.laim0nas100.cfg.ConfigSettings.CachingConfSupplier;
+import com.github.laim0nas100.cfg.ConfigSettings.ConfigurationSupplier;
 import com.github.laim0nas100.cfg.KeyProp.KP;
 import com.github.laim0nas100.cfg.KeyProp.KeyProperty;
 import com.github.laim0nas100.cfg.KeyProp.KeyVal;
-import java.io.IOException;
+import com.github.laim0nas100.cfg.TolerantConfig.NestedInterpolation;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -18,12 +21,14 @@ import java.util.Properties;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  *
  * Error tolerant configuration based on key-value pairs. Generally of type
  * String:String, but can be used with any types ignoring most methods and just
- * using {@link TolerantConfig#getAny(java.lang.String) }. Not intended to be
+ * using {@link TolerantConfig#getRaw(java.lang.String) }. Not intended to be
  * modified after loading, but you still can with exposed {@link TolerantConfig#getMap()
  * }, if the {@link ConfigurationSupplier} returns a static {@link Map}.
  *
@@ -31,38 +36,160 @@ import java.util.function.Supplier;
  */
 public interface TolerantConfig {
 
-    public static final String LIST_DELIM = ";";
-    public static final String NESTING_DELIM = ".";
+    public static interface Interpolating extends TolerantConfig {
 
-    /**
-     * Delimiter to separate values inside a list or array
-     */
-    public default String conf_listDelim() {
-        return LIST_DELIM;
+        /**
+         * Override the getString call when interpolating
+         *
+         * @param key
+         * @param defaultValue
+         * @return
+         */
+        public default String getStringFromToken(String token, String defaultValue) {
+            return getString(token, defaultValue);
+        }
+
+        /**
+         * Actual interpolation implementation.
+         *
+         * @param value
+         * @param defaultValue
+         * @return
+         */
+        public String recursiveInterpolation(int limit, String value, String defaultValue);
+
+        /**
+         * Optional interpolate part of a string value. Assuming we are working
+         * with string type all the way. Putting empty values if not found.
+         *
+         * @param value
+         * @return
+         */
+        public default String iterpolateValue(String value) {
+            return recursiveInterpolation(conf().recursiveInterpolationLimit(), value, "");
+        }
     }
 
-    /**
-     * Delimiter to separate nested values
-     */
-    public default String conf_nestingDelim() {
-        return NESTING_DELIM;
+    public static class NestedInterpolation extends InterpolatingConfig {
+
+        /**
+         * Implementation details, when parsing nested interpolation
+         */
+        protected InterpolatingConfig nested;
+        protected Set<String> insideTokens = new HashSet<>();
+        protected final int limit;
+
+        protected NestedInterpolation(InterpolatingConfig prev, int limit) {
+            super(prev.supply);
+            this.limit = limit;
+            if (prev instanceof NestedInterpolation) {
+                NestedInterpolation nest = (NestedInterpolation) prev;
+                insideTokens.addAll(nest.insideTokens);
+            }
+        }
+
+        @Override
+        public String iterpolateValue(String value) {
+            return recursiveInterpolation(limit, value, "");
+        }
+
+        @Override
+        public String getStringFromToken(String token, String defaultValue) {
+            if (limit <= 0 || insideTokens.contains(token)) {
+                return defaultValue;
+            }
+            try {
+                insideTokens.add(token);
+                return super.getStringFromToken(token, defaultValue);
+            } finally {
+                insideTokens.remove(token);
+            }
+
+        }
+
     }
 
-    /**
-     * Toggle trimming of strings when parsing. Only applies to singular values
-     * in non-strings. Default true.
-     */
-    public default boolean conf_trimWhitespace() {
-        return true;
-    }
+    public static class InterpolatingConfig extends DefaultTolerantConfig implements Interpolating {
 
-    /**
-     * Toggle trimming of string arrays and lists when parsing. Default false.
-     *
-     * @return
-     */
-    public default boolean conf_trimListWhiteSpace() {
-        return false;
+        public InterpolatingConfig(ConfigurationSupplier supply) {
+            super(supply);
+        }
+
+        protected InterpolatingConfig(InterpolatingConfig prev, int limit, String token) {
+            super(prev.supply);
+        }
+
+        @Override
+        public String recursiveInterpolation(int limit, String value, String defaultValue) {
+            ConfigSettings settings = conf();
+            if (limit <= 0 || !settings.interpolate()) {
+                return value;
+            }
+            String pre = settings.prefixInterpolation();
+            int start = value.indexOf(pre);
+            if (start < 0) {
+                return value; // no iterpolation
+            }
+            String suff = settings.suffixInterpolation();
+            int end = value.indexOf(suff, start);
+            if (end <= start) {
+                return value; // no iterpolation
+            }
+
+            String token = value.substring(start + pre.length(), end);
+            String interpolated = null;
+            if (settings.useEnv() && token.startsWith(settings.prefixEnv())) {
+                //extract environment
+                token = token.substring(settings.prefixEnv().length());
+                String envProp = System.getenv(token);
+                if (envProp == null) {
+                    interpolated = defaultValue;
+                } else {
+                    if (settings.continueInterpolationEnvironment()) {
+                        interpolated = recursiveInterpolation(limit - 1, envProp, defaultValue);
+                    } else {
+                        interpolated = envProp;
+                    }
+                }
+
+            } else if (settings.useSys() && token.startsWith(settings.prefixSys())) {
+                //extract system
+                token = token.substring(settings.prefixSys().length());
+                String property = System.getProperty(token);
+                if (property == null) {
+                    interpolated = defaultValue;
+                } else {
+                    if (settings.continueInterpolationEnvironment()) {
+                        interpolated = recursiveInterpolation(limit - 1, property, defaultValue);
+                    } else {
+                        interpolated = property;
+                    }
+                }
+            } else {
+                // extract local
+                if (limit <= 0) {
+                    return value;
+                }
+                interpolated = new NestedInterpolation(this, limit - 1).getStringFromToken(token, defaultValue);
+            }
+
+            return new StringBuilder()
+                    .append(value.substring(0, start))
+                    .append(interpolated)
+                    .append(recursiveInterpolation(limit, value.substring(end + suff.length()), defaultValue))
+                    .toString();
+
+        }
+
+        @Override
+        public String str(Object key) {
+            Object get = getMap().get(key);
+            if (get == null) {
+                return null;
+            }
+            return iterpolateValue(String.valueOf(get));
+        }
+
     }
 
     public static class DefaultTolerantConfig implements TolerantConfig {
@@ -70,8 +197,12 @@ public interface TolerantConfig {
         protected final ConfigurationSupplier supply;
 
         public DefaultTolerantConfig(ConfigurationSupplier supply) {
-
             this.supply = Objects.requireNonNull(supply, "ConfigurationSupplier must not be null");
+        }
+
+        @Override
+        public ConfigSettings conf() {
+            return supply.getSettings();
         }
 
         @Override
@@ -100,7 +231,9 @@ public interface TolerantConfig {
         }
     }
 
-    public static final TolerantConfig empty = new DefaultTolerantConfig(() -> Collections.EMPTY_MAP);
+    public static final TolerantConfig empty = new DefaultTolerantConfig(
+            ConfigurationSupplier.ofConfiguredMap(ConfigSettings.DEFAULT_CONFIG, Collections.EMPTY_MAP)
+    );
 
     public static TolerantConfig empty() {
         return empty;
@@ -110,12 +243,38 @@ public interface TolerantConfig {
         if (conf == null) {
             return empty;
         }
-        return new DefaultTolerantConfig(() -> conf);
+        return new InterpolatingConfig(ConfigurationSupplier.ofConfiguredMap(ConfigSettings.DEFAULT_CONFIG, conf));
+    }
+
+    public static TolerantConfig of(ConfigSettings settings, Map conf) {
+        if (conf == null) {
+            return empty;
+        }
+        if (settings.interpolate()) {
+            return new InterpolatingConfig(ConfigurationSupplier.ofConfiguredMap(settings, conf));
+        } else {
+            return new DefaultTolerantConfig(ConfigurationSupplier.ofConfiguredMap(settings, conf));
+        }
     }
 
     /**
-     * Combine multiple tolerant configs using the {@link OverrideCombiner}
-     * policy.
+     * Combine multiple tolerant configs, caching the result, so combined map is
+     * created only once. Using the first configuration settings.
+     *
+     * @param conf
+     * @return
+     */
+    public static TolerantConfig combinedCached(TolerantConfig... conf) {
+        if (conf.length == 0) {
+            return empty;
+        }
+        Map[] maps = Stream.of(conf).map(m -> m.getMap()).toArray(s -> new Map[s]);
+        return ofSuplierCached(ConfigurationSupplier.ofCombined(conf[0].conf(), maps));
+    }
+
+    /**
+     * Combine multiple tolerant configs. Using the first configuration
+     * settings.
      *
      * @param conf
      * @return
@@ -124,15 +283,16 @@ public interface TolerantConfig {
         if (conf.length == 0) {
             return empty;
         }
-        LinkedHashMap conbinedMap = new LinkedHashMap();
-        for (int i = conf.length - 1; i >= 0; i--) {
-            Map delegated = conf[i].getMap();
-            conbinedMap.putAll(delegated);
-        }
-        return of(conbinedMap);
+        Util.CombinedMap combinedMap = new Util.CombinedMap(() -> {
+            return Stream.of(conf).map(m -> m.getMap()).collect(Collectors.toList());
+        });
+        return ofSuplier(ConfigurationSupplier.ofConfiguredMap(conf[0].conf(), combinedMap));
     }
 
     public static TolerantConfig ofSuplier(final ConfigurationSupplier supply) {
+        if (supply.getSettings().interpolate()) {
+            return new InterpolatingConfig(supply);
+        }
         return new DefaultTolerantConfig(supply);
     }
 
@@ -156,105 +316,68 @@ public interface TolerantConfig {
 
     }
 
-    public static interface ConfigurationSupplier {
-
-        public Map getConfiguration() throws IOException;
-
-        public default Map getConfOrNull() {
-            try {
-                return getConfiguration();
-            } catch (IOException ex) {
-                return null;
-            }
-        }
-
-        public default boolean isChanged() { // might want to hot reload
-            return false;
-        }
-
-    }
-
-    public static class CachingConfSupplier implements ConfigurationSupplier {
-
-        protected final ConfigurationSupplier supply;
-        protected Map conf;
-        protected final boolean sync;
-
-        public CachingConfSupplier(ConfigurationSupplier real) {
-            this(real, true);
-        }
-
-        public CachingConfSupplier(ConfigurationSupplier real, boolean sync) {
-            this.supply = Objects.requireNonNull(real);
-            this.sync = sync;
-        }
-
-        @Override
-        public Map getConfiguration() throws IOException {
-            if (conf != null && !supply.isChanged()) {
-                return conf;
-            }
-            if (sync) {
-                synchronized (supply) {
-                    conf = supply.getConfOrNull();
-                }
-            } else {
-                conf = supply.getConfOrNull();
-            }
-
-            return conf;
-        }
-
-        @Override
-        public boolean isChanged() {
-            return supply.isChanged();
-        }
-
-    }
+    public ConfigSettings conf();
 
     public Map getMap();
 
-    public default Iterator<? extends KeyVal> getEntries() {
+    /**
+     * Return entries, ignoring interpolation.
+     *
+     * @return
+     */
+    public default Stream<? extends KeyVal> getEntriesRaw() {
         Map delegated = getMap();
         if (delegated == null) {
-            return Collections.emptyIterator();
+            return Stream.empty();
         }
-        Iterator<Map.Entry> iterator = delegated.entrySet().iterator();
-        return new Iterator<KeyVal>() {
-            @Override
-            public boolean hasNext() {
-                return iterator.hasNext();
-            }
+        Stream<Map.Entry> stream = delegated.entrySet().stream();
 
-            @Override
-            public KeyVal next() {
-                Map.Entry next = iterator.next();
-                return new KP(String.valueOf(next.getKey()), next.getValue());
-            }
-        };
+        return stream.map(entry -> {
+            return new KP(String.valueOf(entry.getKey()), entry.getValue());
+        });
     }
 
-    public default Iterator<? extends KeyVal> getEntries(String prefix) {
+    /**
+     * Return entries, interpolating if configuration supports it.
+     *
+     * @return
+     */
+    public default Stream<? extends KeyVal> getEntries() {
+        return getEntries(null);
+    }
+
+    /**
+     * Return entries which starts with given prefix. Optionally interpolates.
+     * Null prefix includes all entries.
+     *
+     * @param prefix
+     * @return
+     */
+    public default Stream<? extends KeyVal> getEntries(String prefix) {
         Map map = getMap();
         if (map == null) {
-            return Collections.emptyIterator();
+            return Stream.empty();
         }
-        Set<Map.Entry> entrySet = map.entrySet();
+        final boolean interpolate = conf().interpolate();
 
-        return entrySet.stream()
-                .map(entry -> {
-                    Object key = entry.getKey();
-                    if (key == null) {
-                        return null;
-                    }
-                    String strKey = String.valueOf(key);
-                    if (strKey.startsWith(prefix)) {
-                        return new KP(strKey, entry.getValue());
-                    }
-                    return null;
-                })
-                .filter(Objects::nonNull)
-                .iterator();
+        Stream<Map.Entry> stream = map.entrySet().stream();
+        return stream.map(entry -> {
+            Object key = entry.getKey();
+            if (key == null) {
+                return null;
+            }
+            String strKey = String.valueOf(key);
+            if (prefix == null || strKey.startsWith(prefix)) {
+                Object value = entry.getValue();
+                if (interpolate && value instanceof String) {// possible interpolated
+                    value = getString(strKey);
+                }
+                return new KP(strKey, value);
+            }
+
+            return null;
+        }).filter(Objects::nonNull);
+
     }
 
     public default <T> T getByProp(KeyProperty<T> prop) {
@@ -262,10 +385,26 @@ public interface TolerantConfig {
         return prop.resolve(this);
     }
 
-    public default <T> T getAny(String key) {
+    /**
+     * Bypasses any default string decoration and interpolations. The only way
+     * to receive a non-string value.
+     *
+     * @param <T>
+     * @param key
+     * @return
+     */
+    public default <T> T getRaw(String key) {
         return getOrThrow(key, f -> (T) f.getMap().get(key));
     }
 
+    /**
+     * Get the property converted to boolean or return the given default if
+     * property was not present or conversion has failed
+     *
+     * @param key
+     * @param or
+     * @return
+     */
     public default boolean getOr(String key, boolean or) {
         return getBoolean(key, or);
     }
@@ -405,25 +544,47 @@ public interface TolerantConfig {
         return Optional.ofNullable(this).map(func).orElseThrow(() -> new NoSuchElementException(key));
     }
 
+    /**
+     *
+     * @return If backing map is empty.
+     */
     public default boolean isEmpty() {
         return getMap().isEmpty();
     }
 
+    /**
+     *
+     * @return size of the backing map.
+     */
     public default int size() {
         return getMap().size();
     }
 
+    /**
+     * {@link TolerantConfig#str(java.lang.Object) } call followed by an
+     * optional trim. Unprotected. Will throw if {@link TolerantConfig#getMap()
+     * } throws.
+     *
+     */
     public default String strTrim(Object key) {
         String str = str(key);
         if (str == null) {
             return null;
         }
-        if (conf_trimWhitespace()) {
+        if (conf().trimWhitespace()) {
             return str.trim();
         }
         return str;
     }
 
+    /**
+     * Main map call converting to string of returning null. Every method calls
+     * this except {@link TolerantConfig#getRaw(java.lang.String) }.
+     * Unprotected. Will throw if {@link TolerantConfig#getMap() } throws.
+     *
+     * @param key
+     * @return
+     */
     public default String str(Object key) {
         Object get = getMap().get(key);
         if (get == null) {
@@ -449,7 +610,7 @@ public interface TolerantConfig {
                         return null;
                     }
                     String str = String.valueOf(s);
-                    if (str.startsWith(prefix)) {
+                    if (prefix == null || str.startsWith(prefix)) {
                         return str;
                     }
                     return null;
@@ -459,13 +620,7 @@ public interface TolerantConfig {
     }
 
     public default Iterator<String> getKeys() {
-        return getOr(p -> p.getMap()
-                .keySet()
-                .stream()
-                .filter(Objects::nonNull)
-                .map(s -> String.valueOf(s))
-                .iterator(), Collections.EMPTY_LIST.iterator()
-        );
+        return getKeys(null);
     }
 
     public default boolean getBoolean(String key) {
@@ -577,11 +732,11 @@ public interface TolerantConfig {
     }
 
     public default String[] getStringArray(String key) {
-        return getOrThrow(key, p -> Util.splitArray(p.str(key), p.conf_listDelim(), p.conf_trimListWhiteSpace()));
+        return getOrThrow(key, p -> Util.splitArray(p.str(key), p.conf().listDelim(), p.conf().trimListWhiteSpace()));
     }
 
     public default String[] getStringArray(String key, String[] defaultValue) {
-        return getOr(p -> Util.splitArray(p.str(key), p.conf_listDelim(), p.conf_trimListWhiteSpace()), defaultValue);
+        return getOr(p -> Util.splitArray(p.str(key), p.conf().listDelim(), p.conf().trimListWhiteSpace()), defaultValue);
     }
 
     public default <C extends Enum<C>> C getEnum(String key, Class<C> enumType) {
@@ -600,20 +755,27 @@ public interface TolerantConfig {
     }
 
     public default List<String> getList(String key) {
-        return getOrThrow(key, p -> Util.split(p.str(key), p.conf_listDelim(), p.conf_trimListWhiteSpace()));
+        return getOrThrow(key, p -> Util.split(p.str(key), p.conf().listDelim(), p.conf().trimListWhiteSpace()));
     }
 
     public default List<String> getList(String key, List<String> defaultValue) {
-        return getOr(p -> Util.split(p.str(key), p.conf_listDelim(), p.conf_trimWhitespace()), defaultValue);
+        return getOr(p -> Util.split(p.str(key), p.conf().listDelim(), p.conf().trimWhitespace()), defaultValue);
     }
 
-    public default TolerantConfig immutableSubset(String prefix) {
-        return getOr(p -> TolerantConfig.of(p.subMap(prefix)), TolerantConfig.empty);
+    /**
+     * Returns a frozen truncated subset based on given prefix.
+     * Eager interpolation.
+     *
+     * @param prefix
+     * @return
+     */
+    public default TolerantConfig subset(String prefix) {
+        return getOr(p -> TolerantConfig.of(p.conf().wihtoutIterpolation(), p.subMap(prefix)), TolerantConfig.empty);
     }
 
     /**
      * Get all current entries and put into a Properties object with full keys
-     * which is then returned.
+     * which is then returned. Eager interpolation. Freezes the returned map.
      *
      * @param prefix
      * @return
@@ -626,7 +788,7 @@ public interface TolerantConfig {
 
     /**
      * Get all current entries and put into a Properties object which is then
-     * returned.
+     * returned. Eager interpolation. Freezes the returned map.
      *
      * @return
      */
@@ -638,7 +800,7 @@ public interface TolerantConfig {
      * Get all current entries and put into a Properties object with key and
      * object modification function which is then returned.
      *
-     * Null keys are not inserted
+     * Null keys are not inserted. Eager interpolation. Freezes the returned map.
      *
      * @param keyMod
      * @param objectMod
@@ -648,43 +810,51 @@ public interface TolerantConfig {
         Objects.requireNonNull(keyMod, "Key modification function is empty");
         Objects.requireNonNull(objectMod, "Object modification function is null");
         Properties props = new Properties();
-        Iterator<? extends KeyVal> entries = getEntries();
-        while (entries.hasNext()) {
-            KeyVal kv = entries.next();
+        getEntries().forEach(kv -> {
             String key = keyMod.apply(kv.getKey());
-            if (key == null) {
-                continue;
+            if (key != null) {
+                props.put(key, objectMod.apply(kv.getValue()));
             }
-            props.put(key, objectMod.apply(kv.getValue()));
-        }
+        });
         return props;
     }
 
+    /**
+     * Return a non-truncated sub Map based on given prefix. Freezes the
+     * returned map.
+     *
+     * @param prefix
+     * @return
+     */
     public default Map nonTruncatedSubMap(String prefix) {
         LinkedHashMap subMap = new LinkedHashMap();
-        Iterator<? extends KeyVal> entries = getEntries(prefix);
-        while (entries.hasNext()) {
-            KeyVal next = entries.next();
-            String originalKey = next.getKey();
-            subMap.put(originalKey, next.getValue());
-        }
+        getEntries(prefix).forEach(kv -> {
+            String originalKey = kv.getKey();
+            subMap.put(originalKey, kv.getValue());
+        });
         return subMap;
     }
 
+    /**
+     * Return a truncated sub Map based on given prefix. Freezes the returned
+     * map.
+     *
+     * @param prefix
+     * @return
+     */
     public default Map subMap(String prefix) {
         LinkedHashMap subMap = new LinkedHashMap();
-        Iterator<? extends KeyVal> entries = getEntries(prefix);
-        String conf_nestingDelim = conf_nestingDelim();
+        Stream<? extends KeyVal> entries = getEntries(prefix);
+        String conf_nestingDelim = conf().nestingDelim();
         String fullPrefix = prefix + conf_nestingDelim;
         int fullLength = fullPrefix.length();
-        while (entries.hasNext()) {
-            KeyVal next = entries.next();
-            String originalKey = next.getKey();
+        entries.forEach(kv -> {
+            String originalKey = kv.getKey();
             if (originalKey.startsWith(fullPrefix)) {
                 String newKey = originalKey.substring(fullLength);
-                subMap.put(newKey, next.getValue());
+                subMap.put(newKey, kv.getValue());
             }
-        }
+        });
         return subMap;
     }
 

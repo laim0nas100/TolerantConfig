@@ -20,7 +20,7 @@ import java.util.stream.Stream;
 public abstract class KeyProp {
 
     public static <T> Builder<T> ofAny(String key) {
-        return new Builder<>(key, f -> f.getAny(key));
+        return new Builder<>(key, f -> f.getRaw(key));
     }
 
     public static Builder<Boolean> ofBoolean(String key) {
