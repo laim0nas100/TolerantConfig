@@ -35,6 +35,12 @@ import java.util.stream.Stream;
  */
 public interface TolerantConfig {
 
+    /**
+     * Special exception that gets bypassed by
+     * {@link ConversionTolerantFunction} and
+     * {@link ConversionTolerantFunction2}, and is thrown when any key
+     * resolution fails.
+     */
     public static class StrictModeException extends RuntimeException {
 
         public StrictModeException(String string) {
@@ -324,10 +330,8 @@ public interface TolerantConfig {
         public default T apply(TolerantConfig t, String key, A param1) {
             try {
                 return convert(t, key, param1);
-            } catch (StrictModeException strict) {
-                if (t.conf().strictMode()) {// rethrow
-                    throw strict;
-                }
+            } catch (StrictModeException strict) { // only happens in strict mode
+                throw strict;
             } catch (Exception ex) {
             }
             return null;
@@ -342,10 +346,8 @@ public interface TolerantConfig {
         public default T apply(TolerantConfig t, String key) {
             try {
                 return convert(t, key);
-            } catch (StrictModeException strict) {
-                if (t.conf().strictMode()) {// rethrow
-                    throw strict;
-                }
+            } catch (StrictModeException strict) { // only happens in strict mode
+                throw strict;
             } catch (Exception ex) {
             }
             return null;
@@ -396,6 +398,7 @@ public interface TolerantConfig {
             return Stream.empty();
         }
         final boolean interpolate = conf().interpolate();
+        final boolean trim = conf().trimInterpolated();
 
         Stream<Map.Entry> stream = map.entrySet().stream();
         return stream.map(entry -> {
@@ -407,7 +410,7 @@ public interface TolerantConfig {
             if (prefix == null || strKey.startsWith(prefix)) {
                 Object value = entry.getValue();
                 if (interpolate && value instanceof String) {// possible interpolated
-                    value = getString(strKey);
+                    value = trim ? getStringTrim(strKey) : getString(strKey);
                 }
                 return new KP(strKey, value);
             }
@@ -784,8 +787,8 @@ public interface TolerantConfig {
         return getOr(key, (p, k) -> p.getMap().containsKey(k), false);
     }
 
-    public default Iterator<String> getKeys(String prefix) {
-        return getOr(prefix, (p, pref) -> p.getMap()
+    public default Stream<String> getKeys(String prefix) {
+        return getOrSup(prefix, (p, pref) -> p.getMap()
                 .keySet()
                 .stream()
                 .map(s -> {
@@ -798,11 +801,11 @@ public interface TolerantConfig {
                     }
                     return null;
                 })
-                .filter(Objects::nonNull).iterator(), Collections.EMPTY_LIST.iterator()
+                .filter(Objects::nonNull), Stream::empty
         );
     }
 
-    public default Iterator<String> getKeys() {
+    public default Stream<String> getKeys() {
         return getKeys(null);
     }
 
@@ -1012,8 +1015,8 @@ public interface TolerantConfig {
     }
 
     /**
-     * Return a non-truncated sub Map based on given prefix. Freezes the
-     * returned map.
+     * Return a non-truncated sub Map based on given prefix. Eager
+     * interpolation. Freezes the returned map.
      *
      * @param prefix
      * @return

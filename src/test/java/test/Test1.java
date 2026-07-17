@@ -23,12 +23,13 @@ public class Test1 {
         map.put("some.property.name", " John ");
         map.put("some.property.surname", " Cena ");
         map.put("some.property.greeting", "and his name is ${some.property.name} ${some.property.surname}");
-        map.put("some.property2", "   ${some.property.greeting} ${env:temporary}   ");
+        map.put("some.property.final", "   ${some.property.greeting} ${env:temporary}   ");
         MutableConfigSettings settings = new MutableConfigSettings();
         settings.trimInterpolated = true;
         settings.strictMode = true;
         TolerantConfig conf = TolerantConfig.of(settings,map);
-        System.out.println(conf.getStringTrim("some.property2"));
+        TolerantConfig subset = conf.subset("some");
+        System.out.println(conf.getStringTrim("some.property.final"));
         System.out.println();
     }
 

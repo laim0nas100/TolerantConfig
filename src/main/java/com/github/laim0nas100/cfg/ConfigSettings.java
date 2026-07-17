@@ -187,7 +187,8 @@ public interface ConfigSettings {
 
     /**
      * Toggle basic interpolation of the same set. Required to be true to use
-     * System and Environment interpolation, (master switch). Default true.
+     * System and Environment interpolation (works like a master switch).
+     * Default true.
      *
      */
     public default boolean interpolate() {
@@ -215,9 +216,10 @@ public interface ConfigSettings {
     }
 
     /**
-     * Toggle optional string trimming during interpolation. Default false.
+     * Toggle optional string trimming during interpolation. To trim during
+     * interpolation this and {@link ConfigSettings#trimWhitespace()
+     * } must be set to true. Default false.
      *
-     * @return
      */
     public default boolean trimInterpolated() {
         return false;
