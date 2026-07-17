@@ -10,7 +10,6 @@ import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.util.Collections;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -322,8 +321,12 @@ public interface TolerantConfig {
         Objects.requireNonNull(supply, "Supplier must not be null");
         return ofSuplier(new CachingConfSupplier(supply));
     }
+    
+    public static interface CTF<T> {
+        
+    }
 
-    public static interface ConversionTolerantFunction2<T, A> {
+    public static interface ConversionTolerantFunction2<T, A> extends CTF<T> {
 
         public T convert(TolerantConfig t, String key, A param1) throws Exception;
 
@@ -339,7 +342,7 @@ public interface TolerantConfig {
 
     }
 
-    public static interface ConversionTolerantFunction<T> {
+    public static interface ConversionTolerantFunction<T> extends CTF<T>{
 
         public T convert(TolerantConfig t, String key) throws Exception;
 

@@ -134,12 +134,9 @@ public abstract class KeyProp {
         @Override
         protected ConversionTolerantFunction<? extends R> getFinalFunction() {
             final ConversionTolerantFunction<? extends S> original = super.getFinalFunction();
-            return new ConversionTolerantFunction<R>() {
-                @Override
-                public R convert(TolerantConfig t, String key) throws Exception {
-                    S source = original.convert(t, key);
-                    return mapper.apply(source);
-                }
+            return (TolerantConfig t, String key1) -> {
+                S source = original.convert(t, key1);
+                return mapper.apply(source);
             };
         }
 
