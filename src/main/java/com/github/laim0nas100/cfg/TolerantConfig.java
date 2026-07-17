@@ -145,12 +145,12 @@ public interface TolerantConfig {
             String pre = settings.prefixInterpolation();
             int start = value.indexOf(pre);
             if (start < 0) {
-                return value; // no iterpolation
+                return value; // no interpolation
             }
             String suff = settings.suffixInterpolation();
             int end = value.indexOf(suff, start);
             if (end <= start) {
-                return value; // no iterpolation
+                return value; // no interpolation
             }
 
             String token = value.substring(start + pre.length(), end);

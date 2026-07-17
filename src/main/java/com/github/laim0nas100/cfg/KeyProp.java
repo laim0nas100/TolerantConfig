@@ -367,7 +367,7 @@ public abstract class KeyProp {
         /**
          *
          * @param prop
-         * @return resolved or cached value basd on passed TolerantConfig
+         * @return resolved or cached value based on passed TolerantConfig
          * combination
          */
         public T resolveCached(TolerantConfig... prop) {
