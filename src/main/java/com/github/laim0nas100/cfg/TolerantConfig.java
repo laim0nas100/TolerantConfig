@@ -321,9 +321,9 @@ public interface TolerantConfig {
         Objects.requireNonNull(supply, "Supplier must not be null");
         return ofSuplier(new CachingConfSupplier(supply));
     }
-    
+
     public static interface CTF<T> {
-        
+
     }
 
     public static interface ConversionTolerantFunction2<T, A> extends CTF<T> {
@@ -336,13 +336,16 @@ public interface TolerantConfig {
             } catch (StrictModeException strict) { // only happens in strict mode
                 throw strict;
             } catch (Exception ex) {
+                if (t.conf().strictMode()) {
+                    throw new StrictModeException("Failed mapping by key:" + key, ex);
+                }
             }
             return null;
         }
 
     }
 
-    public static interface ConversionTolerantFunction<T> extends CTF<T>{
+    public static interface ConversionTolerantFunction<T> extends CTF<T> {
 
         public T convert(TolerantConfig t, String key) throws Exception;
 
@@ -352,6 +355,9 @@ public interface TolerantConfig {
             } catch (StrictModeException strict) { // only happens in strict mode
                 throw strict;
             } catch (Exception ex) {
+                if (t.conf().strictMode()) {
+                    throw new StrictModeException("Failed conversion mapping by key:" + key, ex);
+                }
             }
             return null;
         }
@@ -549,6 +555,49 @@ public interface TolerantConfig {
     }
 
     /**
+     * Assert that the resolved value is not null, return ifNot otherwise.
+     * Throws {@link StrictModeException} if value is null in strict mode.
+     *
+     * @param <T>
+     * @param key
+     * @param value
+     * @param ifNot
+     * @return
+     */
+    public default <T> T assertResolvedValue(String key, T value, T ifNot) {
+        if (value != null) {
+            return value;
+        }
+        if (conf().strictMode()) {
+            throw new StrictModeException("missing value:" + key);
+        } else {
+            return ifNot;
+        }
+    }
+
+    /**
+     * Assert that the resolved value is not null, return supplied value by
+     * ifNot otherwise. Throws {@link StrictModeException} if value is null in
+     * strict mode.
+     *
+     * @param <T>
+     * @param key
+     * @param value
+     * @param ifNot
+     * @return
+     */
+    public default <T> T assertResolvedOr(String key, T value, Supplier<? extends T> ifNot) {
+        if (value != null) {
+            return value;
+        }
+        if (conf().strictMode()) {
+            throw new StrictModeException("missing value:" + key);
+        } else {
+            return ifNot.get();
+        }
+    }
+
+    /**
      * Get the property converted to specified type using the conversion
      * function or return the given default if property was not present or
      * conversion has failed
@@ -558,25 +607,7 @@ public interface TolerantConfig {
      * @return
      */
     public default <T> T getOr(String key, ConversionTolerantFunction<T> func, T ifNot) {
-        T value = null;
-        try {
-            value = func.convert(this, key);
-        } catch (StrictModeException ex) {
-            throw ex;
-        } catch (Exception ex) {
-            if (conf().strictMode()) {
-                throw new StrictModeException("failed mapping:" + key, ex);
-            }
-        }
-        if (value == null) {
-            if (conf().strictMode()) {
-                throw new StrictModeException("missing value:" + key);
-            } else {
-                return ifNot;
-            }
-        }
-
-        return value;
+        return assertResolvedValue(key, func.apply(this, key), ifNot);
     }
 
     /**
@@ -589,25 +620,7 @@ public interface TolerantConfig {
      * @return
      */
     public default <T, A> T getOr2(String key, A param1, ConversionTolerantFunction2<T, A> func, T ifNot) {
-        T value = null;
-        try {
-            value = func.convert(this, key, param1);
-        } catch (StrictModeException ex) {
-            throw ex;
-        } catch (Exception ex) {
-            if (conf().strictMode()) {
-                throw new StrictModeException("failed mapping:" + key, ex);
-            }
-        }
-        if (value == null) {
-            if (conf().strictMode()) {
-                throw new StrictModeException("missing value:" + key);
-            } else {
-                return ifNot;
-            }
-        }
-
-        return value;
+        return assertResolvedValue(key, func.apply(this, key, param1), ifNot);
     }
 
     /**
@@ -620,25 +633,7 @@ public interface TolerantConfig {
      * @return
      */
     public default <T> T getOrSup(String key, ConversionTolerantFunction<T> func, Supplier<? extends T> ifNot) {
-        T value = null;
-        try {
-            value = func.convert(this, key);
-        } catch (StrictModeException ex) {
-            throw ex;
-        } catch (Exception ex) {
-            if (conf().strictMode()) {
-                throw new StrictModeException("failed mapping:" + key, ex);
-            }
-        }
-        if (value == null) {
-            if (conf().strictMode()) {
-                throw new StrictModeException("missing value:" + key);
-            } else {
-                return ifNot.get();
-            }
-        }
-
-        return value;
+        return assertResolvedOr(key, func.apply(this, key), ifNot);
     }
 
     /**
@@ -650,26 +645,8 @@ public interface TolerantConfig {
      * @param ifNot
      * @return
      */
-    public default <T, A> T getOrSup2(String key, A param, ConversionTolerantFunction2<T, A> func, Supplier<? extends T> ifNot) {
-        T value = null;
-        try {
-            value = func.convert(this, key, param);
-        } catch (StrictModeException ex) {
-            throw ex;
-        } catch (Exception ex) {
-            if (conf().strictMode()) {
-                throw new StrictModeException("failed mapping:" + key, ex);
-            }
-        }
-        if (value == null) {
-            if (conf().strictMode()) {
-                throw new StrictModeException("missing value:" + key);
-            } else {
-                return ifNot.get();
-            }
-        }
-
-        return value;
+    public default <T, A> T getOrSup2(String key, A param1, ConversionTolerantFunction2<T, A> func, Supplier<? extends T> ifNot) {
+        return assertResolvedOr(key, func.apply(this, key, param1), ifNot);
     }
 
     /**
@@ -682,16 +659,7 @@ public interface TolerantConfig {
      * @return
      */
     public default <T> T getOrThrow(String key, ConversionTolerantFunction<T> func) {
-        T value = null;
-        try {
-            value = func.convert(this, key);
-        } catch (StrictModeException ex) {
-            throw ex;
-        } catch (Exception ex) {
-            if (conf().strictMode()) {
-                throw new StrictModeException("failed mapping:" + key, ex);
-            }
-        }
+        T value = func.apply(this, key);
         if (value == null) {
             if (conf().strictMode()) {
                 throw new StrictModeException("missing value:" + key);
@@ -699,7 +667,6 @@ public interface TolerantConfig {
                 throw new NoSuchElementException(key);
             }
         }
-
         return value;
     }
 
@@ -713,16 +680,7 @@ public interface TolerantConfig {
      * @return
      */
     public default <T, A> T getOrThrow2(String key, A param1, ConversionTolerantFunction2<T, A> func) {
-        T value = null;
-        try {
-            value = func.convert(this, key, param1);
-        } catch (StrictModeException ex) {
-            throw ex;
-        } catch (Exception ex) {
-            if (conf().strictMode()) {
-                throw new StrictModeException("failed mapping:" + key, ex);
-            }
-        }
+        T value = func.apply(this, key, param1);
         if (value == null) {
             if (conf().strictMode()) {
                 throw new StrictModeException("missing value:" + key);
@@ -730,7 +688,6 @@ public interface TolerantConfig {
                 throw new NoSuchElementException(key);
             }
         }
-
         return value;
     }
 
