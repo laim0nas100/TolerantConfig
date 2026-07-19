@@ -8,15 +8,15 @@ import com.github.laim0nas100.cfg.KeyProp.KeyVal;
 import com.github.laim0nas100.cfg.TolerantConfig.NestedInterpolation;
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.Properties;
-import java.util.Set;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
@@ -92,8 +92,7 @@ public interface TolerantConfig {
         /**
          * Implementation details, when parsing nested interpolation
          */
-        protected InterpolatingConfig nested;
-        protected Set<String> insideTokens = new HashSet<>();
+        protected Collection<String> insideTokens = new ArrayList<>();// faster than map if below 10 elements.
         protected final int limit;
 
         protected NestedInterpolation(InterpolatingConfig prev, int limit) {
@@ -132,73 +131,94 @@ public interface TolerantConfig {
             super(supply);
         }
 
-        protected InterpolatingConfig(InterpolatingConfig prev, int limit, String token) {
-            super(prev.supply);
-        }
-
         @Override
         public String recursiveInterpolation(int limit, String value, String defaultValue) {
             ConfigSettings settings = conf();
             if (!settings.interpolate() || limit <= 0) {
                 return value;
             }
-            String pre = settings.prefixInterpolation();
-            int start = value.indexOf(pre);
-            if (start < 0) {
-                return value; // no interpolation
-            }
-            String suff = settings.suffixInterpolation();
-            int end = value.indexOf(suff, start);
-            if (end <= start) {
-                return value; // no interpolation
-            }
 
-            String token = value.substring(start + pre.length(), end);
-            String interpolated = null;
-            if (settings.useEnv() && token.startsWith(settings.prefixEnv())) {
-                //extract environment
-                token = token.substring(settings.prefixEnv().length());
-                String envProp = System.getenv(token);
-                if (envProp == null) {
-                    if (settings.strictMode()) {
-                        throw new StrictModeException("failed to resolve environment variable:" + token);
+            StringBuilder builder = null;
+            String currentVal = value;
+            NestedInterpolation nested = null;
+            while (true) {
+
+                String pre = settings.prefixInterpolation();
+                int start = currentVal.indexOf(pre);
+                if (start < 0) {  // no more interpolation
+                    if (builder == null) {
+                        return value;
                     }
-                    interpolated = defaultValue;
-                } else {
-                    if (settings.continueInterpolationEnvironment()) {
-                        interpolated = new NestedInterpolation(this, limit - 1).getStringFromToken(envProp, defaultValue);
-                    } else {
-                        interpolated = envProp;
+                    break;
+                }
+                String suff = settings.suffixInterpolation();
+                int end = currentVal.indexOf(suff, start);
+                if (end <= start) {  // no more interpolation
+                    if (builder == null) { //unused
+                        return value;
                     }
+                    break;
                 }
 
-            } else if (settings.useSys() && token.startsWith(settings.prefixSys())) {
-                //extract system
-                token = token.substring(settings.prefixSys().length());
-                String property = System.getProperty(token);
-                if (property == null) {
-                    if (settings.strictMode()) {
-                        throw new StrictModeException("failed to resolve system property:" + token);
-                    }
-                    interpolated = defaultValue;
-                } else {
-                    if (settings.continueInterpolationEnvironment()) {
-                        interpolated = new NestedInterpolation(this, limit - 1).getStringFromToken(property, defaultValue);
+                String token = currentVal.substring(start + pre.length(), end);
+                String interpolated = null;
+                if (settings.useEnv() && token.startsWith(settings.prefixEnv())) {
+                    //extract environment
+                    token = token.substring(settings.prefixEnv().length());
+                    String envProp = System.getenv(token);
+                    if (envProp == null) {
+                        if (settings.strictMode()) {
+                            throw new StrictModeException("failed to resolve environment variable:" + token);
+                        }
+                        interpolated = defaultValue;
                     } else {
-                        interpolated = property;
+                        if (settings.continueInterpolationEnvironment()) {
+                            if (nested == null) {
+                                nested = new NestedInterpolation(this, limit - 1);
+                            }
+                            interpolated = nested.getStringFromToken(envProp, defaultValue);
+                        } else {
+                            interpolated = envProp;
+                        }
                     }
+
+                } else if (settings.useSys() && token.startsWith(settings.prefixSys())) {
+                    //extract system
+                    token = token.substring(settings.prefixSys().length());
+                    String property = System.getProperty(token);
+                    if (property == null) {
+                        if (settings.strictMode()) {
+                            throw new StrictModeException("failed to resolve system property:" + token);
+                        }
+                        interpolated = defaultValue;
+                    } else {
+                        if (settings.continueInterpolationEnvironment()) {
+                            if (nested == null) {
+                                nested = new NestedInterpolation(this, limit - 1);
+                            }
+                            interpolated = nested.getStringFromToken(property, defaultValue);
+                        } else {
+                            interpolated = property;
+                        }
+                    }
+                } else {
+                    // extract local
+                    if (nested == null) {
+                        nested = new NestedInterpolation(this, limit - 1);
+                    }
+                    interpolated = nested.getStringFromToken(token, defaultValue);
                 }
-            } else {
-                // extract local
-                interpolated = new NestedInterpolation(this, limit - 1).getStringFromToken(token, defaultValue);
+                if (builder == null) {
+                    builder = new StringBuilder();
+                }
+
+                builder.append(currentVal.substring(0, start))
+                        .append(interpolated);
+
+                currentVal = currentVal.substring(end + suff.length());
             }
 
-            return new StringBuilder()
-                    .append(value.substring(0, start))
-                    .append(interpolated)
-                    // don't start new nesting fork, it's the same string continuation
-                    .append(recursiveInterpolation(limit, value.substring(end + suff.length()), defaultValue))
-                    .toString();
+            return builder.append(currentVal).toString();
 
         }
 
