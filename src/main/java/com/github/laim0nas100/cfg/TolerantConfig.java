@@ -77,13 +77,13 @@ public interface TolerantConfig {
 
         /**
          * Optional interpolate part of a string value. Assuming we are working
-         * with string type all the way. Putting empty values if not found.
+         * with string type all the way.
          *
          * @param value
          * @return
          */
-        public default String iterpolateValue(String value) {
-            return recursiveInterpolation(conf().recursiveInterpolationLimit(), value, "");
+        public default String interpolateValue(String value) {
+            return recursiveInterpolation(conf().recursiveInterpolationLimit(), value, conf().interpolationDefault());
         }
     }
 
@@ -92,21 +92,25 @@ public interface TolerantConfig {
         /**
          * Implementation details, when parsing nested interpolation
          */
-        protected Collection<String> insideTokens = new ArrayList<>();// faster than map if below 10 elements.
+        protected ArrayList<String> insideTokens;
         protected final int limit;
+        protected final String interpolDefault;
 
-        protected NestedInterpolation(InterpolatingConfig prev, int limit) {
+        protected NestedInterpolation(InterpolatingConfig prev, int limit, String interpolDefault) {
             super(prev.supply);
             this.limit = limit;
+            this.interpolDefault = interpolDefault;
             if (prev instanceof NestedInterpolation) {
                 NestedInterpolation nest = (NestedInterpolation) prev;
-                insideTokens.addAll(nest.insideTokens);
+                insideTokens = nest.insideTokens; // just copy the pointer
+            } else {
+                insideTokens = new ArrayList<>(); // faster than map if below 10 elements.
             }
         }
 
         @Override
-        public String iterpolateValue(String value) {
-            return recursiveInterpolation(limit, value, "");
+        public String interpolateValue(String value) {
+            return recursiveInterpolation(limit, value, interpolDefault);
         }
 
         @Override
@@ -118,7 +122,11 @@ public interface TolerantConfig {
                 insideTokens.add(token);
                 return super.getStringFromToken(token, defaultValue);
             } finally {
-                insideTokens.remove(token);
+                // removing from the end is free
+                int lastIndexOf = insideTokens.lastIndexOf(token);
+                if (lastIndexOf >= 0) {
+                    insideTokens.remove(lastIndexOf);
+                }
             }
 
         }
@@ -174,7 +182,7 @@ public interface TolerantConfig {
                     } else {
                         if (settings.continueInterpolationEnvironment()) {
                             if (nested == null) {
-                                nested = new NestedInterpolation(this, limit - 1);
+                                nested = new NestedInterpolation(this, limit - 1, defaultValue);
                             }
                             interpolated = nested.getStringFromToken(envProp, defaultValue);
                         } else {
@@ -194,7 +202,7 @@ public interface TolerantConfig {
                     } else {
                         if (settings.continueInterpolationEnvironment()) {
                             if (nested == null) {
-                                nested = new NestedInterpolation(this, limit - 1);
+                                nested = new NestedInterpolation(this, limit - 1, defaultValue);
                             }
                             interpolated = nested.getStringFromToken(property, defaultValue);
                         } else {
@@ -204,7 +212,7 @@ public interface TolerantConfig {
                 } else {
                     // extract local
                     if (nested == null) {
-                        nested = new NestedInterpolation(this, limit - 1);
+                        nested = new NestedInterpolation(this, limit - 1, defaultValue);
                     }
                     interpolated = nested.getStringFromToken(token, defaultValue);
                 }
@@ -228,7 +236,7 @@ public interface TolerantConfig {
             if (get == null) {
                 return null;
             }
-            return iterpolateValue(String.valueOf(get));
+            return interpolateValue(String.valueOf(get));
         }
 
     }

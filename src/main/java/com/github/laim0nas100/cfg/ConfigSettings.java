@@ -25,6 +25,7 @@ public interface ConfigSettings {
         public String nestingDelim = NESTING_DELIM;
         public String systemPrefix = SYSTEM_PREFIX;
         public String envPrefix = ENVIRONMENT_PREFIX;
+        public String interpolationDefault = "";
         public boolean useInterpolation = true;
         public boolean useEnvironmentInterpolation = useInterpolation;
         public boolean useSystemInterpolation = useInterpolation;
@@ -89,6 +90,11 @@ public interface ConfigSettings {
         @Override
         public String prefixEnv() {
             return envPrefix;
+        }
+
+        @Override
+        public String interpolationDefault() {
+            return interpolationDefault;
         }
 
         @Override
@@ -293,98 +299,128 @@ public interface ConfigSettings {
     }
 
     /**
+     * What to put in case interpolation fails. Default is empty string.
+     *
+     * @return
+     */
+    public default String interpolationDefault() {
+        return "";
+    }
+
+    /**
      * Turns off interpolation while preserving every other setting.
      *
      * @return
      */
     public default ConfigSettings withoutInterpolation() {
         ConfigSettings me = this;
-        return new ConfigSettings() {
+        return new DelegatedConfigSettings() {
             @Override
-            public String listDelim() {
-                return me.listDelim();
-            }
-
-            @Override
-            public String nestingDelim() {
-                return me.nestingDelim();
-            }
-
-            @Override
-            public boolean trimWhitespace() {
-                return me.trimWhitespace();
-            }
-
-            @Override
-            public boolean trimListWhiteSpace() {
-                return me.trimListWhiteSpace();
+            public ConfigSettings delegate() {
+                return me;
             }
 
             @Override
             public boolean interpolate() {
                 return false;
             }
-
-            @Override
-            public boolean useSys() {
-                return me.useSys();
-            }
-
-            @Override
-            public boolean useEnv() {
-                return me.useEnv();
-            }
-
-            @Override
-            public String prefixInterpolation() {
-                return me.prefixInterpolation();
-            }
-
-            @Override
-            public String suffixInterpolation() {
-                return me.suffixInterpolation();
-            }
-
-            @Override
-            public String prefixSys() {
-                return me.prefixSys();
-            }
-
-            @Override
-            public String prefixEnv() {
-                return me.prefixEnv();
-            }
-
-            @Override
-            public int recursiveInterpolationLimit() {
-                return me.recursiveInterpolationLimit();
-            }
-
-            @Override
-            public boolean continueInterpolationSystem() {
-                return me.continueInterpolationSystem();
-            }
-
-            @Override
-            public boolean continueInterpolationEnvironment() {
-                return me.continueInterpolationEnvironment();
-            }
-
-            @Override
-            public ConfigSettings withoutInterpolation() {
-                return me.withoutInterpolation();
-            }
-
-            @Override
-            public boolean strictMode() {
-                return me.strictMode();
-            }
-
-            @Override
-            public boolean trimInterpolated() {
-                return me.trimInterpolated();
-            }
         };
+    }
+
+    public static interface DelegatedConfigSettings extends ConfigSettings {
+
+        public ConfigSettings delegate();
+
+        @Override
+        public default boolean interpolate() {
+            return delegate().interpolate();
+        }
+
+        @Override
+        public default String listDelim() {
+            return delegate().listDelim();
+        }
+
+        @Override
+        public default String nestingDelim() {
+            return delegate().nestingDelim();
+        }
+
+        @Override
+        public default boolean trimWhitespace() {
+            return delegate().trimWhitespace();
+        }
+
+        @Override
+        public default boolean trimListWhiteSpace() {
+            return delegate().trimListWhiteSpace();
+        }
+
+        @Override
+        public default boolean useSys() {
+            return delegate().useSys();
+        }
+
+        @Override
+        public default boolean useEnv() {
+            return delegate().useEnv();
+        }
+
+        @Override
+        public default String prefixInterpolation() {
+            return delegate().prefixInterpolation();
+        }
+
+        @Override
+        public default String suffixInterpolation() {
+            return delegate().suffixInterpolation();
+        }
+
+        @Override
+        public default String prefixSys() {
+            return delegate().prefixSys();
+        }
+
+        @Override
+        public default String prefixEnv() {
+            return delegate().prefixEnv();
+        }
+
+        @Override
+        public default int recursiveInterpolationLimit() {
+            return delegate().recursiveInterpolationLimit();
+        }
+
+        @Override
+        public default boolean continueInterpolationSystem() {
+            return delegate().continueInterpolationSystem();
+        }
+
+        @Override
+        public default boolean continueInterpolationEnvironment() {
+            return delegate().continueInterpolationEnvironment();
+        }
+
+        @Override
+        public default ConfigSettings withoutInterpolation() {
+            return delegate().withoutInterpolation();
+        }
+
+        @Override
+        public default boolean strictMode() {
+            return delegate().strictMode();
+        }
+
+        @Override
+        public default boolean trimInterpolated() {
+            return delegate().trimInterpolated();
+        }
+
+        @Override
+        public default String interpolationDefault() {
+            return delegate().interpolationDefault();
+        }
+
     }
 
     public static interface ConfigurationSupplier {
